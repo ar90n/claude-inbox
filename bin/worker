@@ -1,0 +1,135 @@
+#!/bin/bash
+# worker: Fetch tasks from the inbox and execute them with claude
+#
+# v3.1: When session_id is present, always try --resume first.
+#       Falls back to --session-id if the session doesn't exist.
+#       The resume metadata flag is no longer needed (worker auto-detects).
+#
+# Results are saved to done/ as .result files (for logging).
+# Context is retained by Claude's session storage.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+export CLAUDE_INBOX="${CLAUDE_INBOX:-$HOME/.claude-inbox}"
+SYSTEM="$ROOT_DIR/system.md"
+WORKER_ID="w.$$"
+WORKDIR="${CLAUDE_INBOX_WORKDIR:-}"
+SKILLS_DIR="$ROOT_DIR/skills"
+
+mkdir -p "$CLAUDE_INBOX"/{tmp,new,done,failed,state} "$CLAUDE_INBOX/cur/$WORKER_ID"
+
+source "$ROOT_DIR/lib/task.sh"
+source "$ROOT_DIR/lib/observe.sh"
+
+log() { printf '[%s] [%s] %s\n' "$(date -Is)" "$WORKER_ID" "$*" >&2; }
+
+cleanup() {
+    task_recover "$WORKER_ID"
+    log "stopped"
+}
+trap cleanup EXIT INT TERM
+
+system_prompt=""
+[ -f "$SYSTEM" ] && system_prompt=$(cat "$SYSTEM")
+
+# --- Metadata extraction ---
+# v3.1 format: [from=User channel=telegram chat_id=12345 msg_id=200 session_id=xxx]
+extract_meta() {
+    local content="$1" key="$2"
+    echo "$content" | head -1 | grep -oP "${key}=\K[^ \]]*" || true
+}
+
+wait_for_task() {
+    if command -v inotifywait &>/dev/null; then
+        inotifywait -qq -e moved_to -t 5 "$CLAUDE_INBOX/new" 2>/dev/null || true
+    elif command -v fswatch &>/dev/null; then
+        timeout 5 fswatch --one-event --latency=0.5 "$CLAUDE_INBOX/new" 2>/dev/null || true
+    else
+        sleep 2
+    fi
+}
+
+# --- Run claude with --resume fallback ---
+run_claude() {
+    local prompt="$1" session_id="$2"
+
+    # Common arguments
+    local common_args=(-p "$prompt" --dangerously-skip-permissions)
+    [ -n "$system_prompt" ] && common_args+=(--system-prompt "$system_prompt")
+    [ -d "$SKILLS_DIR" ] && common_args+=(--add-dir "$SKILLS_DIR")
+
+    local run_cmd="claude"
+    local result="" rc=0
+
+    if [ -n "$session_id" ]; then
+        # Try --resume first (existing session)
+        log "  trying --resume session=$session_id"
+        if [ -n "$WORKDIR" ]; then
+            result=$(cd "$WORKDIR" && $run_cmd --resume "$session_id" "${common_args[@]}" 2>&1) && {
+                echo "$result"
+                return 0
+            }
+        else
+            result=$($run_cmd --resume "$session_id" "${common_args[@]}" 2>&1) && {
+                echo "$result"
+                return 0
+            }
+        fi
+
+        # --resume failed -> fall back to --session-id (new session)
+        log "  --resume failed, falling back to --session-id"
+        if [ -n "$WORKDIR" ]; then
+            result=$(cd "$WORKDIR" && $run_cmd --session-id "$session_id" "${common_args[@]}" 2>&1) || rc=$?
+        else
+            result=$($run_cmd --session-id "$session_id" "${common_args[@]}" 2>&1) || rc=$?
+        fi
+    else
+        # No session_id (e.g. submitted via inbox-add)
+        log "  no session_id, running without session"
+        if [ -n "$WORKDIR" ]; then
+            result=$(cd "$WORKDIR" && $run_cmd "${common_args[@]}" 2>&1) || rc=$?
+        else
+            result=$($run_cmd "${common_args[@]}" 2>&1) || rc=$?
+        fi
+    fi
+
+    echo "$result"
+    return $rc
+}
+
+# --- Main loop ---
+log "started (inbox=$CLAUDE_INBOX)"
+process_pending=true
+
+while true; do
+    [ "$process_pending" = false ] && wait_for_task
+    process_pending=false
+
+    task_file=$(task_claim "$WORKER_ID") || continue
+    process_pending=true
+
+    bname=$(basename "$task_file")
+    log "START $bname"
+    t0=$(date +%s)
+
+    task_content=$(cat "$task_file")
+    session_id=$(extract_meta "$task_content" "session_id")
+
+    # --- Execute ---
+    rc=0
+    result=$(run_claude "$task_content" "$session_id") || rc=$?
+
+    dt=$(( $(date +%s) - t0 ))
+
+    if [ $rc -eq 0 ]; then
+        task_complete "$task_file" "$result"
+        log "DONE  $bname (${dt}s, session=${session_id:-none})"
+    else
+        task_fail "$task_file" "$result"
+        log "FAIL  $bname (exit=$rc, ${dt}s)"
+        observe "task $bname failed (exit=$rc, ${dt}s)"
+    fi
+done

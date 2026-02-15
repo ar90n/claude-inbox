@@ -1,0 +1,64 @@
+---
+name: notebooklm
+description: >
+  This skill should be used when the user asks to "create a podcast",
+  "generate audio overview", "make a NotebookLM episode", or needs to
+  convert text/articles into an AI-generated podcast via Google NotebookLM.
+  Requires the nlm CLI (notebooklm-mcp-cli, MIT license).
+---
+
+# NotebookLM Podcast Generation
+
+Generate audio podcasts using the `nlm` CLI.
+
+## Prerequisites
+
+- `nlm` installed: `npm install -g notebooklm-mcp-cli`
+- Authenticated: `nlm login` (Cookie-based, lasts 2-4 weeks)
+
+## Workflow
+
+### 1. Create notebook
+
+```bash
+notebook_id=$(nlm notebook create --title "Title" --json | jq -r '.id')
+```
+
+### 2. Add sources
+
+```bash
+# Text content
+nlm source add "$notebook_id" --text "$(cat content.md)"
+# URL
+nlm source add "$notebook_id" --url "https://..."
+```
+
+Max 50 sources per notebook. Wait 10-30s after adding for processing.
+
+### 3. Generate audio
+
+```bash
+nlm audio create "$notebook_id" --confirm --json
+```
+
+Takes 2-5 minutes. CLI polls until complete (timeout: 10 min).
+
+### 4. Get audio URL
+
+```bash
+audio_url=$(nlm audio get "$notebook_id" --json | jq -r '.url')
+```
+
+URL is temporary (expires in hours).
+
+## Error Handling
+
+| Error | Action |
+|---|---|
+| 401 Unauthorized | Auth expired. Report that `nlm login` is needed. |
+| Audio timeout | NotebookLM issue. Report failure. |
+| Source too large | Truncate to ~5000 words and retry. |
+
+## Output
+
+Return the notebook ID, audio URL, and title.
