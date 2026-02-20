@@ -1,0 +1,22 @@
+[Unit]
+Description=claude-inbox Telegram bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/claude-inbox/bin/claude-inbox-bridge-telegram
+Restart=always
+RestartSec=5
+
+# Environment
+Environment=CLAUDE_INBOX=%h/.claude-inbox
+# Environment=TELEGRAM_BOT_TOKEN=your-bot-token
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=%h/.claude-inbox
+
+[Install]
+WantedBy=default.target

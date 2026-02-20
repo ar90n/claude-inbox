@@ -51,7 +51,7 @@ Maildir 形式のジョブキュー + Claude Code のセッション管理を組
 **So that** cron ジョブやスクリプトからタスクをスケジュールできる
 
 **受け入れ条件:**
-- `inbox-add "プロンプト"` でタスクを投入できる
+- `claude-inbox-add "プロンプト"` でタスクを投入できる
 - `--priority` で優先度を指定できる
 - stdin からプロンプトを読み込める
 
@@ -106,7 +106,7 @@ Maildir 形式のジョブキュー + Claude Code のセッション管理を組
 - アトミック操作: write-to-tmp + mv(2) rename パターン
 - 排他制御: mv 成功 = 獲得、失敗 = 他 worker が先取り
 
-### F-2: ワーカー（worker.sh）
+### F-2: ワーカー（claude-inbox-worker）
 - タスクの claim → 実行 → complete/fail のライフサイクル管理
 - Claude Code CLI (`claude -p`) によるタスク実行
 - `--resume` フォールバック: まず resume を試み、失敗時に `--session-id` で新規作成
@@ -114,13 +114,13 @@ Maildir 形式のジョブキュー + Claude Code のセッション管理を組
 - `--system-prompt` と `--add-dir skills/` の注入
 - クラッシュリカバリ: cur/ の孤児タスクを new/ に戻す
 
-### F-3: 受信ブリッジ（inbox-recv）
+### F-3: 受信ブリッジ（bridge-telegram）
 - Telegram Bot API ロングポーリング
 - chat_id から session_id を決定論的に計算（uuid5）
 - メタデータ形式: `[from=User channel=telegram chat_id=12345 msg_id=200 session_id=xxx]`
 - ステートレス: DB やファイルベースの状態管理なし
 
-### F-4: プロセス管理（claude-inbox.sh）
+### F-4: プロセス管理（claude-inbox）
 - 複数ワーカーの起動・管理
 - 死亡ワーカーの自動再起動
 - シグナルハンドリング（INT, TERM → graceful shutdown）
@@ -194,7 +194,7 @@ Maildir 形式のジョブキュー + Claude Code のセッション管理を組
 
 ### In Scope（v3.1）
 - Telegram Bot 経由のタスク受信・結果通知
-- CLI (`inbox-add`) によるタスク投入
+- CLI (`claude-inbox-add`) によるタスク投入
 - Maildir ベースのタスクキュー
 - Claude Code セッション管理（resume/session-id）
 - web-collect, notebooklm, notify-telegram, create-task スキル
@@ -224,8 +224,8 @@ Maildir 形式のジョブキュー + Claude Code のセッション管理を組
 ## 8. 現在の課題と優先度
 
 ### P0（即時対応）
-- inbox-recv の書き直し: 1チャンネル=1セッション設計への移行
-- worker.sh の --resume フォールバック実装
+- bridge-telegram の実装: 1チャンネル=1セッション設計
+- claude-inbox-worker の --resume フォールバック実装
 - notify-telegram SKILL.md の origin_msg_id 旧設計の更新
 
 ### P1（重要）

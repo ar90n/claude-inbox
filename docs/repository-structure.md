@@ -6,9 +6,9 @@
 claude-inbox/
 ├── bin/                             # Executables
 │   ├── claude-inbox                 # Entry point (launched by systemd)
-│   ├── worker                       # Worker (claim task -> run claude)
-│   ├── inbox-recv                   # Chat app receive bridge
-│   └── inbox-add                    # CLI task submission
+│   ├── claude-inbox-worker          # Worker (claim task -> run claude)
+│   ├── claude-inbox-bridge-telegram # Telegram -> inbox bridge
+│   └── claude-inbox-add            # CLI task submission
 │
 ├── lib/                             # Infrastructure layer (sourced by bin/)
 │   ├── task.sh                      # Atomic task operations
@@ -38,7 +38,10 @@ claude-inbox/
 │   ├── development-guidelines.md
 │   └── glossary.md
 │
-├── claude-inbox.service             # systemd unit file
+├── systemd/                         # systemd unit files
+│   ├── claude-inbox.service         # Worker dispatcher daemon
+│   └── bridge-telegram.service      # Telegram bridge daemon
+│
 ├── CLAUDE.md                        # Development design doc (for developers)
 │
 ├── .claude/                         # Claude Code settings
@@ -62,9 +65,9 @@ claude-inbox/
 | File | Role | Description |
 |---|---|---|
 | `bin/claude-inbox` | Entry point | Process manager, worker supervision |
-| `bin/worker` | Worker | Claim task -> run claude -> save result |
-| `bin/inbox-recv` | Bridge | Telegram -> task queue conversion |
-| `bin/inbox-add` | CLI | Local task submission |
+| `bin/claude-inbox-worker` | Worker | Claim task -> run claude -> save result |
+| `bin/claude-inbox-bridge-telegram` | Bridge | Telegram -> task queue conversion |
+| `bin/claude-inbox-add` | CLI | Local task submission |
 
 ### 2.2 Prompts (prompts/)
 
@@ -73,15 +76,21 @@ claude-inbox/
 | `prompts/system.md` | System prompt | Defines agent behavior (`--system-prompt`) |
 | `prompts/CLAUDE.md` | Production CLAUDE.md | Agent-facing project instructions |
 
-### 2.3 Configuration (root)
+### 2.3 systemd (systemd/)
+
+| File | Description |
+|---|---|
+| `claude-inbox.service` | Worker dispatcher daemon |
+| `bridge-telegram.service` | Telegram bridge daemon |
+
+### 2.4 Configuration (root)
 
 | File | Role | Description |
 |---|---|---|
-| `claude-inbox.service` | systemd unit | Daemon configuration |
 | `CLAUDE.md` | Dev design doc | Architecture & design reference for developers |
 | `.gitignore` | Git config | Exclusion patterns |
 
-### 2.4 lib/ (Infrastructure Layer)
+### 2.5 lib/ (Infrastructure Layer)
 
 | File | Responsibility |
 |---|---|
@@ -90,7 +99,7 @@ claude-inbox/
 
 **Important:** lib/ is sourced by bin/ scripts. Not agent-facing — agents never invoke these directly.
 
-### 2.5 skills/ (Knowledge Layer)
+### 2.6 skills/ (Knowledge Layer)
 
 | Directory | Skill | Trigger Examples |
 |---|---|---|
@@ -102,7 +111,7 @@ claude-inbox/
 
 **Adding a skill:** Create `skills/{skill-name}/SKILL.md`.
 
-### 2.6 docs/ (Documentation)
+### 2.7 docs/ (Documentation)
 
 | File | Content |
 |---|---|
@@ -129,7 +138,7 @@ $CLAUDE_INBOX/
 ├── failed/                 # Failed tasks
 ├── state/                  # Worker state
 ├── log/                    # Logs
-└── .recv-offset-{channel}  # Bridge polling offset
+└── .bridge-telegram-offset  # Telegram bridge polling offset
 ```
 
 ---
@@ -140,7 +149,7 @@ $CLAUDE_INBOX/
 
 | Pattern | Example | Usage |
 |---|---|---|
-| `kebab-case` | `claude-inbox`, `inbox-recv` | Executables |
+| `claude-inbox-*` | `claude-inbox`, `claude-inbox-worker` | Executables |
 | `kebab-case.sh` | `task.sh`, `observe.sh` | Library scripts |
 | `UPPER_CASE.md` | `CLAUDE.md`, `SKILL.md` | Special documents |
 | `kebab-case.md` | `product-requirements.md` | General documents |

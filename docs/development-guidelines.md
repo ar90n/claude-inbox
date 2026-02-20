@@ -7,7 +7,7 @@
 - **シェバン:** `#!/bin/bash`
 - **安全設定:** 全スクリプトの先頭に `set -euo pipefail`
 - **POSIX 互換:** 可能な限り POSIX sh 互換の構文を使用
-  - 例外: `declare -A`（連想配列）は claude-inbox.sh のワーカー管理で使用
+  - 例外: `declare -A`（連想配列）は claude-inbox のワーカー管理で使用
 
 ### 1.2 コーディング規約
 
@@ -39,7 +39,7 @@ log() { printf '[%s] [%s] %s\n' "$(date -Is)" "$WORKER_ID" "$*" >&2; }
 ```bash
 # ファイルヘッダー: 役割と使い方を簡潔に
 #!/bin/bash
-# worker.sh: inbox からタスクを取得して claude で実行する
+# claude-inbox-worker: inbox からタスクを取得して claude で実行する
 
 # セクションコメント: --- で区切り
 # --- メタデータ抽出 ---
@@ -131,15 +131,15 @@ curl -sf ... >/dev/null 2>&1 || true
 
 ```bash
 # タスク投入テスト
-./inbox-add "hello world"
+bin/claude-inbox-add "hello world"
 ls ~/.claude-inbox/new/
 
 # ワーカーテスト（別ターミナルで）
-./worker.sh
+bin/claude-inbox-worker
 # → new/ のタスクが処理され done/ に移動
 
 # ブリッジテスト
-TELEGRAM_BOT_TOKEN=xxx ./inbox-recv telegram
+TELEGRAM_BOT_TOKEN=xxx bin/claude-inbox-bridge-telegram
 # → Telegram メッセージが new/ に投入される
 ```
 
@@ -147,9 +147,9 @@ TELEGRAM_BOT_TOKEN=xxx ./inbox-recv telegram
 
 ```bash
 # 複数ワーカーの排他制御テスト
-# 同時に複数の worker.sh を起動し、同じタスクが重複処理されないことを確認
-WORKERS=3 ./claude-inbox.sh
-for i in $(seq 1 10); do ./inbox-add "task $i"; done
+# 同時に複数の claude-inbox-worker を起動し、同じタスクが重複処理されないことを確認
+WORKERS=3 bin/claude-inbox
+for i in $(seq 1 10); do bin/claude-inbox-add "task $i"; done
 # done/ のタスク数が10であることを確認
 ```
 

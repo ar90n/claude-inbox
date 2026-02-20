@@ -7,11 +7,11 @@
 ```
 Telegram Chat (chat_id=12345)
   ↕ Bot API (getUpdates / sendMessage)
-inbox-recv (bridge, ステートレス)
+bridge-telegram (ステートレス)
   ↓ task_submit()
 new/*.task
   ↓ task_claim() (atomic mv)
-cur/{wid}/*.task → worker.sh → claude -p / --resume
+cur/{wid}/*.task → claude-inbox-worker → claude -p / --resume
   ↓ task_complete() / task_fail()
 done/*.task + done/*.result  (or failed/)
   ↓ notify-telegram スキル (エージェントが実行)
@@ -21,7 +21,7 @@ Telegram Chat (結果を返信)
 ### 1.2 メッセージ受信フロー
 
 1. ユーザーが Telegram Bot にメッセージを送信
-2. `inbox-recv` が `getUpdates` ロングポーリングで受信
+2. `bridge-telegram` が `getUpdates` ロングポーリングで受信
 3. `chat_id` から `session_id` を決定論的に計算
    ```
    session_id = uuid5(NAMESPACE_URL, "telegram:{chat_id}")
@@ -31,7 +31,7 @@ Telegram Chat (結果を返信)
 
 ### 1.3 タスク実行フロー
 
-1. `worker.sh` のメインループが `task_claim()` を呼び出し
+1. `claude-inbox-worker` のメインループが `task_claim()` を呼び出し
 2. `new/` から最古のタスクを `cur/{worker_id}/` にアトミック移動
 3. タスクファイルからメタデータを抽出（session_id, chat_id 等）
 4. Claude Code CLI の引数を組み立て:
@@ -52,7 +52,7 @@ Telegram Chat (結果を返信)
 
 ## 2. コンポーネント詳細設計
 
-### 2.1 inbox-recv（受信ブリッジ）
+### 2.1 bridge-telegram（Telegram ブリッジ）
 
 **役割:** チャットアプリ → タスクキューのブリッジ
 
@@ -88,7 +88,7 @@ Telegram Chat (結果を返信)
 6. `task_submit()` でキューに投入
 7. offset を更新
 
-### 2.2 worker.sh（ワーカー）
+### 2.2 claude-inbox-worker（ワーカー）
 
 **役割:** タスクの取得・実行・結果保存
 
@@ -168,7 +168,7 @@ extract_meta() {
 - システム起動・停止
 - 認証切れ検出（nlm 等）
 
-### 2.5 claude-inbox.sh（エントリポイント）
+### 2.5 claude-inbox（エントリポイント）
 
 **役割:** ワーカープロセスの管理
 
@@ -307,7 +307,7 @@ Turn 3: "Telegramで送って"
 | レベル | 対象 | 処理 | 通知先 |
 |---|---|---|---|
 | タスクエラー | claude -p 失敗 | failed/ に保存 | observe (システム監視) |
-| ワーカーエラー | worker.sh クラッシュ | task_recover + 自動再起動 | observe |
+| ワーカーエラー | claude-inbox-worker クラッシュ | task_recover + 自動再起動 | observe |
 | ブリッジエラー | API 通信失敗 | リトライ + sleep | stderr |
 | スキルエラー | 外部 API 失敗 | エージェントが判断 | エージェント返信 |
 | 認証エラー | nlm 401 | 報告のみ | observe |
@@ -316,7 +316,7 @@ Turn 3: "Telegramで送って"
 
 - ワーカー停止時: `task_recover()` が cur/ の孤児を new/ に戻す
 - trap EXIT/INT/TERM でクリーンアップ
-- claude-inbox.sh が5秒間隔でワーカー死亡を検知し再起動
+- claude-inbox が5秒間隔でワーカー死亡を検知し再起動
 
 ### 5.3 アトミック性による整合性保証
 

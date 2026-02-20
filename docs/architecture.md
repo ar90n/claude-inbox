@@ -27,8 +27,8 @@ claude-inbox は以下の原則に基づいて設計されている:
 ┌───────┼─────────────┼───────────────┼─────────────┐
 │       │        claude-inbox         │             │
 │  ┌────▼─────┐       │               │             │
-│  │inbox-recv│  ┌────▼───────────────▼──────────┐  │
-│  │(bridge)  │  │  Claude Code Agent            │  │
+│  │bridge-   │  ┌────▼───────────────▼──────────┐  │
+│  │telegram  │  │  Claude Code Agent            │  │
 │  └────┬─────┘  │  ┌──────────┐ ┌────────────┐ │  │
 │       │        │  │web-collect│ │notebooklm  │ │  │
 │  ┌────▼─────┐  │  └──────────┘ └────────────┘ │  │
@@ -37,12 +37,12 @@ claude-inbox は以下の原則に基づいて設計されている:
 │  │  (files) │◄─┤  │telegram  │ │            │ │  │
 │  └────┬─────┘  │  └──────────┘ └────────────┘ │  │
 │       │        └───────────────────────────────┘  │
-│  ┌────▼─────┐       ▲                            │
-│  │worker.sh │───────┘                            │
-│  └──────────┘                                    │
+│  ┌────▼──────────────┐  ▲                        │
+│  │claude-inbox-worker│──┘                        │
+│  └───────────────────┘                           │
 │       │                                          │
 │  ┌────▼──────────┐  ┌──────────────┐             │
-│  │claude-inbox.sh│  │lib/observe.sh│──► 監視通知  │
+│  │claude-inbox   │  │lib/observe.sh│──► 監視通知  │
 │  │(process mgr)  │  │              │             │
 │  └───────────────┘  └──────────────┘             │
 └──────────────────────────────────────────────────┘
@@ -56,11 +56,11 @@ claude-inbox は以下の原則に基づいて設計されている:
 
 | レイヤー | 責務 | コンポーネント |
 |---|---|---|
-| エントリポイント | プロセス管理 | claude-inbox.sh |
-| ブリッジ | 外部チャット → キュー変換 | inbox-recv |
-| CLI | ローカルタスク投入 | inbox-add |
+| エントリポイント | プロセス管理 | claude-inbox |
+| ブリッジ | 外部チャット → キュー変換 | bridge-telegram |
+| CLI | ローカルタスク投入 | claude-inbox-add |
 | キュー | タスクの永続化・排他制御 | lib/task.sh + Maildir ディレクトリ |
-| ワーカー | タスク実行エンジン | worker.sh |
+| ワーカー | タスク実行エンジン | claude-inbox-worker |
 | エージェント | AI タスク実行 | Claude Code CLI + prompts/ |
 | スキル | ドメイン知識 | skills/**/SKILL.md |
 | 監視 | システム状態通知 | lib/observe.sh |
@@ -68,8 +68,8 @@ claude-inbox は以下の原則に基づいて設計されている:
 ### 2.2 依存関係
 
 ```
-claude-inbox.sh
-  └── worker.sh
+claude-inbox
+  └── claude-inbox-worker
         ├── lib/task.sh
         ├── lib/observe.sh
         ├── prompts/system.md
@@ -82,11 +82,11 @@ claude-inbox.sh
                     └── create-task
                           └── lib/task.sh
 
-inbox-recv
+claude-inbox-bridge-telegram
   ├── lib/task.sh
   └── lib/observe.sh
 
-inbox-add
+claude-inbox-add
   └── lib/task.sh
 ```
 
@@ -98,7 +98,7 @@ inbox-add
 
 ```
 [生成]                  [待機]        [処理中]         [完了/失敗]
-inbox-recv/inbox-add → tmp/*.task → new/*.task → cur/{wid}/*.task → done/ or failed/
+claude-inbox-bridge-telegram/claude-inbox-add → tmp/*.task → new/*.task → cur/{wid}/*.task → done/ or failed/
                        (write)     (mv atomic)  (mv atomic)        (mv atomic)
 ```
 
@@ -121,7 +121,7 @@ $CLAUDE_INBOX/                     # デフォルト: ~/.claude-inbox
 │   └── {task_id}.result
 ├── state/                         # ワーカー状態
 ├── log/                           # ログ
-└── .recv-offset-{channel}         # ブリッジのポーリング位置
+└── .bridge-telegram-offset         # Telegram ブリッジのポーリング位置
 ```
 
 ### 3.3 タスクファイル形式
@@ -185,7 +185,7 @@ uuid5(NAMESPACE_URL, f"telegram:{chat_id}")
 ```
 
 - DB不要、ファイル不要、外部ステート不要
-- inbox-recv も worker.sh も同じ計算で同じ結果を得る
+- bridge-telegram も worker も同じ計算で同じ結果を得る
 - チャンネル種別ごとの計算ロジック差し替えが可能
 
 ### 5.2 セッションストレージ
@@ -204,7 +204,7 @@ uuid5(NAMESPACE_URL, f"telegram:{chat_id}")
 ### 5.3 resume フォールバックパターン
 
 ```
-inbox-recv                    worker.sh
+bridge-telegram               worker
     │                            │
     │  session_id=uuid5(...)     │
     ├────────────────────────────►│
@@ -241,7 +241,7 @@ inbox-recv                    worker.sh
 
 | 項目 | エージェント返信 | システム監視 |
 |---|---|---|
-| 実行者 | Claude エージェント | bash (worker.sh, claude-inbox.sh) |
+| 実行者 | Claude エージェント | bash (claude-inbox-worker, claude-inbox) |
 | 判断 | エージェントが自動 | 条件に基づき決定的 |
 | 環境変数 | TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID | OBSERVE_TELEGRAM_BOT_TOKEN, OBSERVE_TELEGRAM_CHAT_ID |
 | 用途 | タスク結果の返信 | ワーカー死亡、失敗通知 |
@@ -254,7 +254,7 @@ inbox-recv                    worker.sh
 ### 7.1 Progressive Disclosure
 
 ```
-worker.sh
+claude-inbox-worker
   │
   ├── claude --add-dir skills/ -p "..."
   │
@@ -297,10 +297,12 @@ description: >
 
 ```
 systemctl --user
-  └── claude-inbox.service
-        └── claude-inbox.sh (Type=simple)
-              ├── worker.sh (fork, PID tracked)
-              ├── worker.sh (fork, PID tracked)
+  ├── claude-inbox.service
+  │     └── claude-inbox (Type=simple)
+  └── bridge-telegram.service
+        └── bridge-telegram (Type=simple)
+              ├── claude-inbox-worker (fork, PID tracked)
+              ├── claude-inbox-worker (fork, PID tracked)
               └── ... (WORKERS=N)
 ```
 

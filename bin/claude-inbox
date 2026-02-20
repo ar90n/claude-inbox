@@ -35,7 +35,7 @@ declare -A WORKER_PIDS
 
 start_worker() {
     local id=$1
-    "$SCRIPT_DIR/worker" &
+    "$SCRIPT_DIR/claude-inbox-worker" &
     local pid=$!
     WORKER_PIDS[$id]=$pid
     log "worker $id started (pid=$pid)"

@@ -1,10 +1,10 @@
 #!/usr/bin/env bats
-# test/inbox-add.bats: Tests for bin/inbox-add CLI
+# test/inbox-add.bats: Tests for bin/claude-inbox-add CLI
 
 load test_helper/common
 
 ROOT_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
-INBOX_ADD="$ROOT_DIR/bin/inbox-add"
+INBOX_ADD="$ROOT_DIR/bin/claude-inbox-add"
 
 @test "inbox-add creates task with default priority 5" {
     run "$INBOX_ADD" "test prompt"

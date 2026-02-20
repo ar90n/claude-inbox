@@ -5,7 +5,7 @@ load test_helper/common
 load test_helper/mock_claude
 
 ROOT_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
-INBOX_ADD="$ROOT_DIR/bin/inbox-add"
+INBOX_ADD="$ROOT_DIR/bin/claude-inbox-add"
 
 @test "full pipeline: submit -> claim -> execute -> complete" {
     setup_mock_claude 0 "execution result"
