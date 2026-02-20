@@ -8,3 +8,9 @@
 .claude/settings.local.json.clause
 .claude
 /CLAUDE.md
+
+# Environment secrets
+.env
+
+# Dev Container (local development only)
+.devcontainer/

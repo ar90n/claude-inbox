@@ -42,6 +42,10 @@ claude-inbox/
 │   ├── claude-inbox.service         # Worker dispatcher daemon
 │   └── bridge-telegram.service      # Telegram bridge daemon
 │
+├── Dockerfile                       # Container image definition
+├── docker-compose.yml               # Multi-service orchestration
+├── .env.example                     # Environment variable template
+│
 ├── CLAUDE.md                        # Development design doc (for developers)
 │
 ├── .claude/                         # Claude Code settings

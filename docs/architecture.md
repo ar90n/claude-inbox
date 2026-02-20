@@ -320,6 +320,29 @@ TELEGRAM_BOT_TOKEN=...
 TELEGRAM_CHAT_ID=...
 ```
 
+### 8.2 Docker Compose
+
+```
+docker compose up              # worker×1 + bridge-telegram
+WORKERS=3 docker compose up    # worker×3 + bridge-telegram
+docker compose up --scale worker=3  # 同上
+```
+
+```yaml
+services:
+  worker:           bin/claude-inbox-worker     (replicas: N)
+  bridge-telegram:  bin/claude-inbox-bridge-telegram  (1)
+
+volumes:
+  inbox:    /data/inbox          # Maildir queue (shared)
+  claude:   /home/node/.claude   # Claude session storage (shared)
+  workdir:  /workdir             # claude -p working directory
+```
+
+- `bin/claude-inbox`（プロセス管理）は不要 — docker-compose がプロセス管理・再起動を担当
+- 全コンテナが `inbox` ボリュームを共有（atomic `mv` は同一 FS 上で動作）
+- 環境変数は `.env` ファイルで管理（`.env.example` をコピー）
+
 ### 8.3 セキュリティ境界
 
 ```
@@ -342,7 +365,7 @@ systemd sandbox:
 | AI | Claude Code CLI (`claude`) | タスク実行 |
 | メッセージング | Telegram Bot API | 受信・通知 |
 | キュー | Maildir (ファイルシステム) | タスク管理 |
-| プロセス管理 | systemd | デーモン化 |
+| プロセス管理 | systemd / Docker Compose | デーモン化 |
 | ファイル監視 | inotifywait / fswatch | タスク到着通知（オプション） |
 | JSON処理 | jq | API レスポンスのパース |
 | UUID生成 | Python3 (uuid モジュール) | session_id 計算 |

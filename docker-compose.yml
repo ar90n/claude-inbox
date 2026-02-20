@@ -1,0 +1,34 @@
+services:
+  worker:
+    build: .
+    command: ["bin/claude-inbox-worker"]
+    user: "${DOCKER_UID}:${DOCKER_GID}"
+    env_file: .env
+    environment:
+      CLAUDE_INBOX: /data/inbox
+      CLAUDE_INBOX_WORKDIR: /workdir
+      HOME: /home/claude-inbox
+    volumes:
+      - inbox:/data/inbox
+      - ${HOME}/.claude:/home/claude-inbox/.claude
+      - ${HOME}/.claude.json:/home/claude-inbox/.claude.json
+      - workdir:/workdir
+    restart: unless-stopped
+    deploy:
+      replicas: ${WORKERS:-1}
+
+  bridge-telegram:
+    build: .
+    command: ["bin/claude-inbox-bridge-telegram"]
+    user: "${DOCKER_UID}:${DOCKER_GID}"
+    env_file: .env
+    environment:
+      CLAUDE_INBOX: /data/inbox
+      HOME: /home/claude-inbox
+    volumes:
+      - inbox:/data/inbox
+    restart: unless-stopped
+
+volumes:
+  inbox:
+  workdir:
