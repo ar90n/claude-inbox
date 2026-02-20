@@ -9,7 +9,7 @@ services:
       CLAUDE_INBOX_WORKDIR: /workdir
       HOME: /home/claude-inbox
     volumes:
-      - inbox:/data/inbox
+      - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
       - ${HOME}/.claude:/home/claude-inbox/.claude
       - ${HOME}/.claude.json:/home/claude-inbox/.claude.json
       - workdir:/workdir
@@ -26,9 +26,8 @@ services:
       CLAUDE_INBOX: /data/inbox
       HOME: /home/claude-inbox
     volumes:
-      - inbox:/data/inbox
+      - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
     restart: unless-stopped
 
 volumes:
-  inbox:
   workdir:
