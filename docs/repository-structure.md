@@ -26,6 +26,10 @@ claude-inbox/
 │   └── notify-slack/
 │       └── SKILL.md                 # Slack Webhook notifications (P2)
 │
+├── prompts/                         # Production-time prompts
+│   ├── CLAUDE.md                    # Production CLAUDE.md (agent instructions)
+│   └── system.md                    # Agent system prompt (--system-prompt)
+│
 ├── docs/                            # Project documentation
 │   ├── product-requirements.md
 │   ├── functional-design.md
@@ -34,9 +38,8 @@ claude-inbox/
 │   ├── development-guidelines.md
 │   └── glossary.md
 │
-├── system.md                        # Agent system prompt
 ├── claude-inbox.service             # systemd unit file
-├── CLAUDE.md                        # Project design doc (for Claude Code)
+├── CLAUDE.md                        # Development design doc (for developers)
 │
 ├── .claude/                         # Claude Code settings
 │   ├── settings.local.json
@@ -63,16 +66,22 @@ claude-inbox/
 | `bin/inbox-recv` | Bridge | Telegram -> task queue conversion |
 | `bin/inbox-add` | CLI | Local task submission |
 
-### 2.2 Configuration (root)
+### 2.2 Prompts (prompts/)
 
 | File | Role | Description |
 |---|---|---|
-| `system.md` | System prompt | Defines agent behavior |
+| `prompts/system.md` | System prompt | Defines agent behavior (`--system-prompt`) |
+| `prompts/CLAUDE.md` | Production CLAUDE.md | Agent-facing project instructions |
+
+### 2.3 Configuration (root)
+
+| File | Role | Description |
+|---|---|---|
 | `claude-inbox.service` | systemd unit | Daemon configuration |
-| `CLAUDE.md` | Project definition | Design doc (referenced by Claude Code) |
+| `CLAUDE.md` | Dev design doc | Architecture & design reference for developers |
 | `.gitignore` | Git config | Exclusion patterns |
 
-### 2.3 lib/ (Infrastructure Layer)
+### 2.4 lib/ (Infrastructure Layer)
 
 | File | Responsibility |
 |---|---|
@@ -81,7 +90,7 @@ claude-inbox/
 
 **Important:** lib/ is sourced by bin/ scripts. Not agent-facing — agents never invoke these directly.
 
-### 2.4 skills/ (Knowledge Layer)
+### 2.5 skills/ (Knowledge Layer)
 
 | Directory | Skill | Trigger Examples |
 |---|---|---|
@@ -93,7 +102,7 @@ claude-inbox/
 
 **Adding a skill:** Create `skills/{skill-name}/SKILL.md`.
 
-### 2.5 docs/ (Documentation)
+### 2.6 docs/ (Documentation)
 
 | File | Content |
 |---|---|

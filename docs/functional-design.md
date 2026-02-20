@@ -124,7 +124,7 @@ fi
 | `--resume` | session_id | セッション存在時 |
 | `--session-id` | session_id | resume 失敗時 |
 | `--dangerously-skip-permissions` | - | 常に |
-| `--system-prompt` | system.md の内容 | system.md 存在時 |
+| `--system-prompt` | prompts/system.md の内容 | 存在時 |
 | `--add-dir` | skills/ | skills/ 存在時 |
 
 **メタデータ抽出:**
@@ -178,9 +178,9 @@ extract_meta() {
 - 5秒間隔で死亡チェック → 自動再起動
 - SIGINT/SIGTERM で全ワーカーを停止
 
-### 2.6 system.md（エージェント System Prompt）
+### 2.6 prompts/（エージェントプロンプト）
 
-**役割:** Claude エージェントの振る舞いを定義
+**役割:** 本番エージェントの振る舞いを定義（`prompts/system.md` + `prompts/CLAUDE.md`）
 
 **主要ルール:**
 1. セッション継続性: `--resume` 時は前のターンの文脈がある

@@ -109,8 +109,11 @@ Claude Code のセッションを識別する UUID。`uuid5(NAMESPACE_URL, "tele
 ### skills/
 知識層のディレクトリ。Claude Code の `--add-dir` で渡されるスキル群。各サブディレクトリに SKILL.md を置く。エージェントが自動選択する。
 
+### prompts/
+本番用プロンプトのディレクトリ。`system.md`（`--system-prompt` で渡される system prompt）と `CLAUDE.md`（エージェント向けプロジェクト指示）を格納する。
+
 ### system.md
-Claude エージェントの system prompt。セッション継続性、自律実行、スキル自動選択のルールを定義する。`--system-prompt` フラグで渡される。
+→ `prompts/system.md` を参照。Claude エージェントの system prompt。セッション継続性、自律実行、スキル自動選択のルールを定義する。
 
 ## T
 

@@ -61,7 +61,7 @@ claude-inbox は以下の原則に基づいて設計されている:
 | CLI | ローカルタスク投入 | inbox-add |
 | キュー | タスクの永続化・排他制御 | lib/task.sh + Maildir ディレクトリ |
 | ワーカー | タスク実行エンジン | worker.sh |
-| エージェント | AI タスク実行 | Claude Code CLI + system.md |
+| エージェント | AI タスク実行 | Claude Code CLI + prompts/ |
 | スキル | ドメイン知識 | skills/**/SKILL.md |
 | 監視 | システム状態通知 | lib/observe.sh |
 
@@ -72,7 +72,7 @@ claude-inbox.sh
   └── worker.sh
         ├── lib/task.sh
         ├── lib/observe.sh
-        ├── system.md
+        ├── prompts/system.md
         └── claude CLI
               └── skills/
                     ├── web-collect
