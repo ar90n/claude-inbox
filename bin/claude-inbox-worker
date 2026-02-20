@@ -53,8 +53,12 @@ wait_for_task() {
 }
 
 # --- Run claude with --resume fallback ---
+# $1: prompt, $2: session_id, $3: workdir (task-level, overrides CLAUDE_INBOX_WORKDIR)
 run_claude() {
-    local prompt="$1" session_id="$2"
+    local prompt="$1" session_id="$2" task_workdir="${3:-}"
+
+    # Task-level workdir takes priority over global CLAUDE_INBOX_WORKDIR
+    local effective_workdir="${task_workdir:-${WORKDIR:-}}"
 
     # Common arguments
     local common_args=(-p "$prompt" --dangerously-skip-permissions)
@@ -64,36 +68,28 @@ run_claude() {
     local run_cmd="claude"
     local result="" rc=0
 
+    _run() {
+        if [ -n "$effective_workdir" ]; then
+            result=$(cd "$effective_workdir" && $run_cmd "$@" "${common_args[@]}" 2>&1) || return $?
+        else
+            result=$($run_cmd "$@" "${common_args[@]}" 2>&1) || return $?
+        fi
+    }
+
     if [ -n "$session_id" ]; then
         # Try --resume first (existing session)
         log "  trying --resume session=$session_id"
-        if [ -n "$WORKDIR" ]; then
-            result=$(cd "$WORKDIR" && $run_cmd --resume "$session_id" "${common_args[@]}" 2>&1) && {
-                echo "$result"
-                return 0
-            }
-        else
-            result=$($run_cmd --resume "$session_id" "${common_args[@]}" 2>&1) && {
-                echo "$result"
-                return 0
-            }
+        if _run --resume "$session_id"; then
+            echo "$result"; return 0
         fi
 
         # --resume failed -> fall back to --session-id (new session)
         log "  --resume failed, falling back to --session-id"
-        if [ -n "$WORKDIR" ]; then
-            result=$(cd "$WORKDIR" && $run_cmd --session-id "$session_id" "${common_args[@]}" 2>&1) || rc=$?
-        else
-            result=$($run_cmd --session-id "$session_id" "${common_args[@]}" 2>&1) || rc=$?
-        fi
+        _run --session-id "$session_id" || rc=$?
     else
-        # No session_id (e.g. submitted via inbox-add)
+        # No session_id (e.g. submitted via claude-inbox-add)
         log "  no session_id, running without session"
-        if [ -n "$WORKDIR" ]; then
-            result=$(cd "$WORKDIR" && $run_cmd "${common_args[@]}" 2>&1) || rc=$?
-        else
-            result=$($run_cmd "${common_args[@]}" 2>&1) || rc=$?
-        fi
+        _run || rc=$?
     fi
 
     echo "$result"
@@ -117,10 +113,11 @@ while true; do
 
     task_content=$(cat "$task_file")
     session_id=$(extract_meta "$task_content" "session_id")
+    task_workdir=$(extract_meta "$task_content" "workdir")
 
     # --- Execute ---
     rc=0
-    result=$(run_claude "$task_content" "$session_id") || rc=$?
+    result=$(run_claude "$task_content" "$session_id" "$task_workdir") || rc=$?
 
     dt=$(( $(date +%s) - t0 ))
 

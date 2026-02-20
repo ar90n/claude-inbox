@@ -19,7 +19,7 @@ INBOX_ADD="$ROOT_DIR/bin/claude-inbox-add"
     local claimed
     claimed=$(task_claim "int-worker")
     [ -f "$claimed" ]
-    [ "$(cat "$claimed")" = "collect news" ]
+    [[ "$(cat "$claimed")" == *"collect news"* ]]
 
     # 3. Execute mock claude
     local result

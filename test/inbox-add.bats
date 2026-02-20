@@ -35,7 +35,7 @@ INBOX_ADD="$ROOT_DIR/bin/claude-inbox-add"
 
     local content
     content=$(cat "$CLAUDE_INBOX/new/"*.task)
-    [ "$content" = "stdin prompt" ]
+    [[ "$content" == *"stdin prompt"* ]]
 }
 
 @test "inbox-add fails on empty input" {
@@ -49,9 +49,11 @@ INBOX_ADD="$ROOT_DIR/bin/claude-inbox-add"
     [[ "$output" == *"Usage"* ]]
 }
 
-@test "inbox-add task content matches input prompt" {
+@test "inbox-add task content contains input prompt" {
     "$INBOX_ADD" "my specific prompt" >/dev/null
     local content
     content=$(cat "$CLAUDE_INBOX/new/"*.task)
-    [ "$content" = "my specific prompt" ]
+    [[ "$content" == *"my specific prompt"* ]]
+    [[ "$content" == *"channel=cli"* ]]
+    [[ "$content" == *"workdir="* ]]
 }

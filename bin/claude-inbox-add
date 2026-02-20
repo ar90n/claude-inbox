@@ -32,5 +32,10 @@ done
 [ -z "$PROMPT" ] && PROMPT=$(cat)
 [ -z "$PROMPT" ] && { echo "ERROR: no prompt" >&2; exit 1; }
 
-path=$(task_submit --prompt "$PROMPT" --priority "$PRIORITY")
+HEADER="[channel=cli user=${USER:-$(id -un)} workdir=${PWD}]"
+FULL_PROMPT="${HEADER}
+
+${PROMPT}"
+
+path=$(task_submit --prompt "$FULL_PROMPT" --priority "$PRIORITY")
 echo "submitted: $path"
