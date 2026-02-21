@@ -30,13 +30,12 @@ generate_session_id() {
 token="${TELEGRAM_BOT_TOKEN:-}"
 [ -z "$token" ] && { echo "error: TELEGRAM_BOT_TOKEN not set" >&2; exit 1; }
 
-# Optional allowlist: comma-separated chat IDs (e.g. "12345,67890")
-# If unset or empty, all chats are accepted (not recommended for production).
+# Required allowlist: comma-separated chat IDs (e.g. "12345,67890")
 ALLOWED_CHAT_IDS="${TELEGRAM_ALLOWED_CHAT_IDS:-}"
+[ -z "$ALLOWED_CHAT_IDS" ] && { echo "error: TELEGRAM_ALLOWED_CHAT_IDS not set" >&2; exit 1; }
 
 is_allowed() {
     local chat_id="$1"
-    [ -z "$ALLOWED_CHAT_IDS" ] && return 0
     local id
     for id in ${ALLOWED_CHAT_IDS//,/ }; do
         [ "$id" = "$chat_id" ] && return 0
