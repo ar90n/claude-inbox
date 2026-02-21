@@ -49,6 +49,7 @@ offset=0
 observe "bridge-telegram started"
 
 while true; do
+    [ -f "$OFFSET_FILE" ] && offset=$(cat "$OFFSET_FILE")
     response=$(curl -sf "https://api.telegram.org/bot${token}/getUpdates?offset=${offset}&timeout=30" 2>/dev/null) || {
         sleep 5; continue
     }
