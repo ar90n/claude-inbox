@@ -19,7 +19,7 @@ services:
 
   bridge-telegram:
     build: .
-    command: ["bin/claude-inbox-bridge-telegram"]
+    command: ["bin/claude-inbox-bridge-telegram", "--skip-pending"]
     user: "${DOCKER_UID}:${DOCKER_GID}"
     env_file: .env
     environment:

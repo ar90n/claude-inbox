@@ -9,6 +9,7 @@
 #
 # Usage:
 #   bin/claude-inbox-bridge-telegram
+#   bin/claude-inbox-bridge-telegram --skip-pending   # ignore queued messages on startup
 #   systemctl --user start bridge-telegram
 
 set -euo pipefail
@@ -26,6 +27,11 @@ OFFSET_FILE="$CLAUDE_INBOX/.bridge-telegram-offset"
 generate_session_id() {
     python3 -c "import uuid; print(uuid.uuid5(uuid.NAMESPACE_URL, '$1'))"
 }
+
+SKIP_PENDING=false
+for arg in "$@"; do
+    [ "$arg" = "--skip-pending" ] && SKIP_PENDING=true
+done
 
 token="${TELEGRAM_BOT_TOKEN:-}"
 [ -z "$token" ] && { echo "error: TELEGRAM_BOT_TOKEN not set" >&2; exit 1; }
@@ -45,6 +51,17 @@ is_allowed() {
 
 offset=0
 [ -f "$OFFSET_FILE" ] && offset=$(cat "$OFFSET_FILE")
+
+# --skip-pending: advance offset to latest update so queued messages are ignored
+if [ "$SKIP_PENDING" = true ]; then
+    latest=$(curl -sf "https://api.telegram.org/bot${token}/getUpdates?offset=-1" 2>/dev/null \
+        | jq -r '.result[-1].update_id // empty')
+    if [ -n "$latest" ]; then
+        offset=$((latest + 1))
+        echo "$offset" > "$OFFSET_FILE"
+        echo "[bridge-telegram] skip-pending: offset set to $offset" >&2
+    fi
+fi
 
 observe "bridge-telegram started"
 
