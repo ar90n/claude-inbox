@@ -1,7 +1,7 @@
 FROM node:22-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        bash curl jq python3 python3-pip inotify-tools ca-certificates xauth \
+        bash curl jq python3 python3-pip inotify-tools ca-certificates xauth unzip \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
