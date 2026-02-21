@@ -55,7 +55,7 @@ wait_for_task() {
 # --- Run claude with --resume fallback ---
 # $1: prompt, $2: session_id, $3: workdir (task-level, overrides CLAUDE_INBOX_WORKDIR)
 run_claude() {
-    local prompt="$1" session_id="$2" task_workdir="${3:-}"
+    local prompt="$1" session_id="$2" task_workdir="${3:-}" task_model="${4:-}"
 
     # Task-level workdir takes priority over global CLAUDE_INBOX_WORKDIR
     # If the resolved workdir doesn't exist (e.g. host path submitted to Docker worker),
@@ -68,7 +68,8 @@ run_claude() {
 
     # Common arguments
     local common_args=(-p "$prompt" --dangerously-skip-permissions)
-    [ -n "${CLAUDE_MODEL:-}" ] && common_args+=(--model "$CLAUDE_MODEL")
+    local effective_model="${task_model:-${CLAUDE_MODEL:-}}"
+    [ -n "$effective_model" ] && common_args+=(--model "$effective_model")
     [ -n "$system_prompt" ] && common_args+=(--system-prompt "$system_prompt")
     [ -d "$SKILLS_DIR" ] && common_args+=(--add-dir "$SKILLS_DIR")
 
@@ -121,16 +122,17 @@ while true; do
     task_content=$(cat "$task_file")
     session_id=$(extract_meta "$task_content" "session_id")
     task_workdir=$(extract_meta "$task_content" "workdir")
+    task_model=$(extract_meta "$task_content" "model")
 
     # --- Execute ---
     rc=0
-    result=$(run_claude "$task_content" "$session_id" "$task_workdir") || rc=$?
+    result=$(run_claude "$task_content" "$session_id" "$task_workdir" "$task_model") || rc=$?
 
     dt=$(( $(date +%s) - t0 ))
 
     if [ $rc -eq 0 ]; then
         task_complete "$task_file" "$result"
-        log "DONE  $bname (${dt}s, session=${session_id:-none})"
+        log "DONE  $bname (${dt}s, session=${session_id:-none}, model=${task_model:-${CLAUDE_MODEL:-default}})"
     else
         task_fail "$task_file" "$result"
         log "FAIL  $bname (exit=$rc, ${dt}s)"

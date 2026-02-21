@@ -15,14 +15,17 @@ export CLAUDE_INBOX="${CLAUDE_INBOX:-$HOME/.claude-inbox}"
 source "$ROOT_DIR/lib/task.sh"
 
 PRIORITY=5
+MODEL=""
 PROMPT=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --priority) PRIORITY="$2"; shift 2 ;;
+        --model)    MODEL="$2";    shift 2 ;;
         --help|-h)
-            echo "Usage: inbox-add [--priority N] [PROMPT]"
+            echo "Usage: inbox-add [--priority N] [--model MODEL] [PROMPT]"
             echo "  If PROMPT is omitted, reads from stdin"
+            echo "  MODEL: opus, sonnet, haiku (or full model name)"
             exit 0
             ;;
         *) PROMPT="$1"; shift ;;
@@ -32,7 +35,7 @@ done
 [ -z "$PROMPT" ] && PROMPT=$(cat)
 [ -z "$PROMPT" ] && { echo "ERROR: no prompt" >&2; exit 1; }
 
-HEADER="[channel=cli user=${USER:-$(id -un)} workdir=${PWD}]"
+HEADER="[channel=cli user=${USER:-$(id -un)} workdir=${PWD}${MODEL:+ model=${MODEL}}]"
 FULL_PROMPT="${HEADER}
 
 ${PROMPT}"
