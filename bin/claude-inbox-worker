@@ -68,6 +68,7 @@ run_claude() {
 
     # Common arguments
     local common_args=(-p "$prompt" --dangerously-skip-permissions)
+    [ -n "${CLAUDE_MODEL:-}" ] && common_args+=(--model "$CLAUDE_MODEL")
     [ -n "$system_prompt" ] && common_args+=(--system-prompt "$system_prompt")
     [ -d "$SKILLS_DIR" ] && common_args+=(--add-dir "$SKILLS_DIR")
 

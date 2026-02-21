@@ -8,6 +8,7 @@ services:
       CLAUDE_INBOX: /data/inbox
       CLAUDE_INBOX_WORKDIR: /workdir
       HOME: /home/claude-inbox
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-}
     volumes:
       - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
       - ${HOME}/.claude:/home/claude-inbox/.claude
