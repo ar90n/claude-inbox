@@ -91,11 +91,19 @@ while true; do
 
         session_id=$(generate_session_id "telegram:${chat_id}")
 
-        prompt="[from=$user_name channel=telegram chat_id=$chat_id msg_id=$msg_id session_id=$session_id]
+        # Model prefix: /haiku, /sonnet, /opus at start of message
+        model=""
+        case "$text" in
+            /haiku\ *|/haiku)  model="haiku";  text="${text#/haiku}" ; text="${text# }" ;;
+            /sonnet\ *|/sonnet) model="sonnet"; text="${text#/sonnet}"; text="${text# }" ;;
+            /opus\ *|/opus)    model="opus";   text="${text#/opus}"  ; text="${text# }" ;;
+        esac
+
+        prompt="[from=$user_name channel=telegram chat_id=$chat_id msg_id=$msg_id session_id=$session_id${model:+ model=$model}]
 
 $text"
 
         task_submit --prompt "$prompt"
-        echo "[bridge-telegram] queued: $text (session=$session_id)" >&2
+        echo "[bridge-telegram] queued: $text (session=$session_id${model:+, model=$model})" >&2
     done
 done
