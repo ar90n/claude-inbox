@@ -29,6 +29,10 @@ Commands:
                docker exec -it claude-inbox-worker-1 \\
                  bin/claude-inbox-setup claude-mem
 
+  install-skills  Install agent CLAUDE.md (skills) to ~/.claude/
+               docker exec claude-inbox-worker-1 \\
+                 bin/claude-inbox-setup install-skills
+
   status       Show setup status
                docker exec claude-inbox-worker-1 \\
                  bin/claude-inbox-setup status
@@ -38,6 +42,8 @@ EOF
 
 # --- login ---
 cmd_login() {
+    # Ensure ~/.claude/ subdirs exist (named volume starts empty)
+    mkdir -p "$HOME/.claude/debug" "$HOME/.claude/projects"
     # Ensure ~/.claude.json exists before claude tries to read it
     [ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
     echo "Starting Claude Code login..."
@@ -49,7 +55,7 @@ cmd_login() {
 cmd_nlm_login() {
     if [ -z "${DISPLAY:-}" ]; then
         echo "ERROR: DISPLAY not set." >&2
-        echo "Run with: docker exec -it -e DISPLAY=\$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix <worker> bin/claude-inbox-setup nlm-login" >&2
+        echo "Run with: docker exec -it -e DISPLAY=\$DISPLAY <worker> bin/claude-inbox-setup nlm-login" >&2
         exit 1
     fi
 
@@ -58,6 +64,7 @@ cmd_nlm_login() {
         --remote-debugging-port=9222 \
         --no-sandbox \
         --disable-dev-shm-usage \
+        --disable-gpu \
         --no-first-run \
         --no-default-browser-check \
         >/tmp/chrome-setup.log 2>&1 &
@@ -137,6 +144,13 @@ cmd_status() {
         echo "✗ claude-mem: not configured     →  run: claude-inbox-setup claude-mem"
     fi
 
+    # Skills (agent CLAUDE.md)
+    if [ -f "$HOME/.claude/CLAUDE.md" ]; then
+        echo "✓ Skills: installed (~/.claude/CLAUDE.md)"
+    else
+        echo "✗ Skills: not installed        →  run: claude-inbox-setup install-skills"
+    fi
+
     # Google Chrome
     if command -v google-chrome-stable >/dev/null 2>&1; then
         echo "✓ Chrome: $(google-chrome-stable --version 2>/dev/null)"
@@ -145,10 +159,28 @@ cmd_status() {
     fi
 }
 
+# --- install-skills ---
+cmd_install_skills() {
+    local src="${1:-}"
+    # Prefer workdir (live), fallback to /app (image layer)
+    [ -z "$src" ] && src="${CLAUDE_INBOX_WORKDIR:-}/prompts/CLAUDE.md"
+    [ -f "$src" ] || src="/app/prompts/CLAUDE.md"
+
+    if [ ! -f "$src" ]; then
+        echo "ERROR: No prompts/CLAUDE.md found" >&2
+        exit 1
+    fi
+
+    mkdir -p "$HOME/.claude"
+    cp "$src" "$HOME/.claude/CLAUDE.md"
+    echo "Installed agent CLAUDE.md to $HOME/.claude/CLAUDE.md"
+}
+
 case "${1:-}" in
-    login)      cmd_login ;;
-    nlm-login)  cmd_nlm_login ;;
-    claude-mem) cmd_claude_mem ;;
-    status)     cmd_status ;;
-    *)          usage ;;
+    login)          cmd_login ;;
+    nlm-login)      cmd_nlm_login ;;
+    claude-mem)     cmd_claude_mem ;;
+    install-skills) cmd_install_skills "${2:-}" ;;
+    status)         cmd_status ;;
+    *)              usage ;;
 esac

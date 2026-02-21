@@ -24,8 +24,11 @@ RUN pip3 install --break-system-packages \
         notebooklm-mcp-cli \
         browser-use playwright langchain-anthropic
 
-# Pre-create home dir so any UID (via docker-compose user:) can write to it
-RUN mkdir -p /home/claude-inbox && chmod 777 /home/claude-inbox
+# Pre-create home dir and Chrome-required subdirs with open permissions
+# so any UID (via docker-compose user:) can write to them
+RUN mkdir -p /home/claude-inbox/.cache /home/claude-inbox/.config \
+             /home/claude-inbox/.pki/nssdb \
+    && chmod -R 777 /home/claude-inbox
 
 WORKDIR /app
 COPY bin/ bin/

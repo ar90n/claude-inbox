@@ -13,14 +13,25 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Ensure ~/.claude.json exists (required by Claude Code; not in named volume)
+# Ensure ~/.claude/ subdirs and ~/.claude.json exist (named volume starts empty)
+mkdir -p "$HOME/.claude/debug" "$HOME/.claude/projects"
 [ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
 
+# Chrome requires perf_event_paranoid <= 2 to start; lower it only if needed
+{ val=$(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null) && [ "$val" -gt 2 ] && echo 2 > /proc/sys/kernel/perf_event_paranoid; } 2>/dev/null || true
+
 export CLAUDE_INBOX="${CLAUDE_INBOX:-$HOME/.claude-inbox}"
-SYSTEM="$ROOT_DIR/prompts/system.md"
 WORKER_ID="w.$$"
 WORKDIR="${CLAUDE_INBOX_WORKDIR:-}"
+
+# prompts/ and skills/ are always in /app (image layer)
+SYSTEM="$ROOT_DIR/prompts/system.md"
 SKILLS_DIR="$ROOT_DIR/skills"
+
+# Install agent CLAUDE.md to ~/.claude/ (Claude Code auto-loads it every session)
+if [ -f "$ROOT_DIR/prompts/CLAUDE.md" ]; then
+    cp "$ROOT_DIR/prompts/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
+fi
 
 mkdir -p "$CLAUDE_INBOX"/{tmp,new,done,failed,state} "$CLAUDE_INBOX/cur/$WORKER_ID"
 
@@ -37,6 +48,9 @@ trap cleanup EXIT INT TERM
 
 system_prompt=""
 [ -f "$SYSTEM" ] && system_prompt=$(cat "$SYSTEM")
+# Append agent CLAUDE.md (skills, notification rules) to system prompt
+agent_md="$ROOT_DIR/prompts/CLAUDE.md"
+[ -f "$agent_md" ] && system_prompt="${system_prompt}"$'\n\n'"$(cat "$agent_md")"
 
 # --- Metadata extraction ---
 # v3.1 format: [from=User channel=telegram chat_id=12345 msg_id=200 session_id=xxx]

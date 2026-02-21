@@ -21,11 +21,6 @@ as a self-contained instruction.
   use create-task to queue follow-up tasks with session_id for continuity
 - When creating follow-up tasks without session_id, include all context inline
 
-## Skills
-
-Skills are loaded automatically. You will see their names and descriptions.
-Use them when relevant — you decide which skills apply based on the task content.
-
 ## Output
 
 - Be concise. Results go into a .result file for logging.

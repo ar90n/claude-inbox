@@ -9,31 +9,33 @@ services:
       CLAUDE_MEM_WORKER_PORT: "37777"
     volumes:
       - claude_mem_data:/home/claude-inbox/.claude-mem
-    restart: unless-stopped
+#    restart: unless-stopped
 
   worker:
     build: .
     command: ["bin/claude-inbox-worker"]
+    privileged: true  # required for Chrome (sandbox + perf_event_paranoid)
     user: "${DOCKER_UID}:${DOCKER_GID}"
     env_file: .env
     environment:
       CLAUDE_INBOX: /data/inbox
-      CLAUDE_INBOX_WORKDIR: /workdir
+      CLAUDE_INBOX_WORKDIR: /workdir  # always /workdir inside container
       HOME: /home/claude-inbox
       CLAUDE_MODEL: ${CLAUDE_MODEL:-}
       CLAUDE_MEM_WORKER_HOST: claude-mem
       CLAUDE_MEM_WORKER_PORT: "37777"
-      # DISPLAY: ${DISPLAY:-}  # uncomment with /tmp/.X11-unix mount for visible browser
+      DISPLAY: ${DISPLAY:-}  # uncomment with /tmp/.X11-unix mount for visible browser
     volumes:
       - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
       - claude_dot:/home/claude-inbox/.claude
-      - ${CLAUDE_INBOX_WORKDIR:-/workspaces/claude-inbox}:/workdir
-      - ${HOME}/.config/nlm:/home/claude-inbox/.config/nlm
+      - claude_workdir:/workdir
+      # To bind-mount a host project instead: comment the line above, uncomment below
+      # - ${CLAUDE_INBOX_WORKDIR}:/workdir
       # Chrome profile mount for browser-use (optional — uncomment + set CHROME_PROFILE_DIR in .env)
       # - ${CHROME_PROFILE_DIR}:/home/claude-inbox/.config/google-chrome:ro
       # X11 forwarding for visible browser / nlm-login (optional — uncomment + set DISPLAY in environment below)
-      # - /tmp/.X11-unix:/tmp/.X11-unix:ro
-    restart: unless-stopped
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+#    restart: unless-stopped
     depends_on:
       - claude-mem
     deploy:
@@ -49,8 +51,9 @@ services:
       HOME: /home/claude-inbox
     volumes:
       - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
-    restart: unless-stopped
+#    restart: unless-stopped
 
 volumes:
   claude_dot:      # ~/.claude/ — Claude Code auth & sessions
+  claude_workdir:  # /workdir — Claude's working directory
   claude_mem_data: # ~/.claude-mem/ — claude-mem memory store

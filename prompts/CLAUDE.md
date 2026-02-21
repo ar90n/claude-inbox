@@ -27,6 +27,7 @@ Available skills:
 - **notify-slack** — Send results via Slack Incoming Webhook
 - **web-collect** — Collect tech news from HN and GitHub Trending
 - **notebooklm** — Generate podcasts via NotebookLM (nlm CLI)
+- **browser-use** — AI-driven web automation using browser-use + Playwright
 - **create-task** — Queue follow-up tasks to the inbox
 
 ## Notifications: Two Channels
@@ -47,6 +48,10 @@ Tasks may include a metadata header on the first line:
 - `msg_id` — User's message ID (optional reply_to for better UX)
 - `session_id` — Current session identifier
 - `from` — User's display name
+
+**When `channel=telegram` is in the metadata, you MUST use notify-telegram to reply.**
+Do not just write to stdout — the user is waiting in Telegram for your reply.
+Use `chat_id` and `msg_id` from the metadata.
 
 ## Environment Variables
 
