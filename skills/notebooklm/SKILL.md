@@ -13,8 +13,9 @@ Generate audio podcasts using the `nlm` CLI.
 
 ## Prerequisites
 
-- `nlm` installed: `npm install -g notebooklm-mcp-cli`
-- Authenticated: `nlm login` (Cookie-based, lasts 2-4 weeks)
+- `nlm` installed: `pip install notebooklm-mcp-cli`
+- Authenticated: `nlm login` on the host (Cookie-based, lasts 2-4 weeks)
+  - Config stored in `~/.config/nlm/` — bind-mounted into the worker container
 
 ## Workflow
 
