@@ -1,4 +1,16 @@
 services:
+  claude-mem:
+    build: .
+    command: ["bun", "/usr/local/lib/node_modules/claude-mem/plugin/scripts/worker-service.cjs", "start"]
+    user: "${DOCKER_UID}:${DOCKER_GID}"
+    env_file: .env
+    environment:
+      HOME: /home/claude-inbox
+      CLAUDE_MEM_WORKER_PORT: "37777"
+    volumes:
+      - claude_mem_data:/home/claude-inbox/.claude-mem
+    restart: unless-stopped
+
   worker:
     build: .
     command: ["bin/claude-inbox-worker"]
@@ -9,13 +21,21 @@ services:
       CLAUDE_INBOX_WORKDIR: /workdir
       HOME: /home/claude-inbox
       CLAUDE_MODEL: ${CLAUDE_MODEL:-}
+      CLAUDE_MEM_WORKER_HOST: claude-mem
+      CLAUDE_MEM_WORKER_PORT: "37777"
+      # DISPLAY: ${DISPLAY:-}  # uncomment with /tmp/.X11-unix mount for visible browser
     volumes:
       - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
-      - ${HOME}/.claude:/home/claude-inbox/.claude
-      - ${HOME}/.claude.json:/home/claude-inbox/.claude.json
+      - claude_dot:/home/claude-inbox/.claude
       - ${CLAUDE_INBOX_WORKDIR:-/workspaces/claude-inbox}:/workdir
       - ${HOME}/.config/nlm:/home/claude-inbox/.config/nlm
+      # Chrome profile mount for browser-use (optional — uncomment + set CHROME_PROFILE_DIR in .env)
+      # - ${CHROME_PROFILE_DIR}:/home/claude-inbox/.config/google-chrome:ro
+      # X11 forwarding for visible browser / nlm-login (optional — uncomment + set DISPLAY in environment below)
+      # - /tmp/.X11-unix:/tmp/.X11-unix:ro
     restart: unless-stopped
+    depends_on:
+      - claude-mem
     deploy:
       replicas: ${WORKERS:-1}
 
@@ -30,3 +50,7 @@ services:
     volumes:
       - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
     restart: unless-stopped
+
+volumes:
+  claude_dot:      # ~/.claude/ — Claude Code auth & sessions
+  claude_mem_data: # ~/.claude-mem/ — claude-mem memory store

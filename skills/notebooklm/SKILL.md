@@ -10,12 +10,20 @@ description: >
 # NotebookLM Podcast Generation
 
 Generate audio podcasts using the `nlm` CLI.
+Repository: https://github.com/jacob-bd/notebooklm-mcp-cli
 
 ## Prerequisites
 
 - `nlm` installed: `pip install notebooklm-mcp-cli`
-- Authenticated: `nlm login` on the host (Cookie-based, lasts 2-4 weeks)
-  - Config stored in `~/.config/nlm/` — bind-mounted into the worker container
+- Authenticated: run `nlm login` with X11 forwarding (Cookie-based, lasts 2-4 weeks)
+  - Config stored in `~/.config/nlm/` — persists via bind-mount or host install
+
+```bash
+# From inside the worker container (X11 forwarding required):
+docker exec -it -e DISPLAY=$DISPLAY \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  claude-inbox-worker-1 nlm login
+```
 
 ## Workflow
 

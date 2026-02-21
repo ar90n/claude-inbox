@@ -1,0 +1,154 @@
+#!/bin/bash
+# claude-inbox-setup: one-time setup tasks for the worker container
+#
+# Usage:
+#   docker exec -it <worker> bin/claude-inbox-setup <command>
+#
+# Commands:
+#   nlm-login    Authenticate NotebookLM (requires DISPLAY + X11)
+#   claude-mem   Configure claude-mem MCP server in ~/.claude/settings.json
+#   status       Show setup status
+
+set -euo pipefail
+
+usage() {
+    cat >&2 <<EOF
+Usage: $(basename "$0") <command>
+
+Commands:
+  login        Authenticate Claude Code (run once after first start)
+               docker exec -it claude-inbox-worker-1 \\
+                 bin/claude-inbox-setup login
+
+  nlm-login    Authenticate NotebookLM via browser (requires DISPLAY)
+               docker exec -it -e DISPLAY=\$DISPLAY \\
+                 -v /tmp/.X11-unix:/tmp/.X11-unix \\
+                 claude-inbox-worker-1 bin/claude-inbox-setup nlm-login
+
+  claude-mem   Add claude-mem MCP server to ~/.claude/settings.json
+               docker exec -it claude-inbox-worker-1 \\
+                 bin/claude-inbox-setup claude-mem
+
+  status       Show setup status
+               docker exec claude-inbox-worker-1 \\
+                 bin/claude-inbox-setup status
+EOF
+    exit 1
+}
+
+# --- login ---
+cmd_login() {
+    # Ensure ~/.claude.json exists before claude tries to read it
+    [ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
+    echo "Starting Claude Code login..."
+    echo "(Auth will be saved to the claude_dot Docker volume)"
+    claude login
+}
+
+# --- nlm-login ---
+cmd_nlm_login() {
+    if [ -z "${DISPLAY:-}" ]; then
+        echo "ERROR: DISPLAY not set." >&2
+        echo "Run with: docker exec -it -e DISPLAY=\$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix <worker> bin/claude-inbox-setup nlm-login" >&2
+        exit 1
+    fi
+
+    echo "Starting Chrome for NotebookLM authentication..."
+    google-chrome-stable \
+        --remote-debugging-port=9222 \
+        --no-sandbox \
+        --disable-dev-shm-usage \
+        --no-first-run \
+        --no-default-browser-check \
+        >/tmp/chrome-setup.log 2>&1 &
+    local chrome_pid=$!
+
+    echo "Chrome started (pid=$chrome_pid), waiting for CDP..."
+    sleep 3
+
+    if ! kill -0 "$chrome_pid" 2>/dev/null; then
+        echo "ERROR: Chrome failed to start. Log:" >&2
+        cat /tmp/chrome-setup.log >&2
+        exit 1
+    fi
+
+    echo "Running nlm login..."
+    nlm login --cdp-url http://127.0.0.1:9222
+
+    kill "$chrome_pid" 2>/dev/null || true
+    echo "Done. Config saved to ~/.config/nlm/"
+}
+
+# --- claude-mem ---
+cmd_claude_mem() {
+    local settings="$HOME/.claude/settings.json"
+    mkdir -p "$(dirname "$settings")"
+
+    # Create settings.json if it doesn't exist
+    if [ ! -f "$settings" ]; then
+        echo '{}' > "$settings"
+    fi
+
+    # Check if already configured
+    if jq -e '.mcpServers["claude-mem"]' "$settings" >/dev/null 2>&1; then
+        echo "claude-mem is already configured in $settings"
+        return 0
+    fi
+
+    # Add claude-mem MCP server (stdio transport, connects to worker container via env vars)
+    local tmp
+    tmp=$(mktemp)
+    jq '.mcpServers |= (. // {}) + {
+        "claude-mem": {
+            "command": "node",
+            "args": ["/usr/local/lib/node_modules/claude-mem/plugin/scripts/mcp-server.cjs"]
+        }
+    }' "$settings" > "$tmp"
+    mv "$tmp" "$settings"
+
+    echo "Added claude-mem MCP server to $settings"
+    echo "CLAUDE_MEM_WORKER_HOST and CLAUDE_MEM_WORKER_PORT are set via docker-compose environment."
+    echo "Restart the worker to pick up the new config."
+}
+
+# --- status ---
+cmd_status() {
+    echo "=== claude-inbox setup status ==="
+
+    # Claude auth
+    if claude --version >/dev/null 2>&1 && [ -s "$HOME/.claude.json" ] && [ "$(cat "$HOME/.claude.json")" != "{}" ]; then
+        echo "✓ Claude: authenticated"
+    else
+        echo "✗ Claude: not authenticated      →  run: claude-inbox-setup login"
+    fi
+
+    # nlm auth
+    if nlm login --check >/dev/null 2>&1; then
+        echo "✓ NotebookLM: authenticated"
+    else
+        echo "✗ NotebookLM: not authenticated  →  run: claude-inbox-setup nlm-login"
+    fi
+
+    # claude-mem
+    local settings="$HOME/.claude/settings.json"
+    if [ -f "$settings" ] && jq -e '.mcpServers["claude-mem"]' "$settings" >/dev/null 2>&1; then
+        echo "✓ claude-mem: configured"
+    else
+        echo "✗ claude-mem: not configured     →  run: claude-inbox-setup claude-mem"
+    fi
+
+    # Google Chrome
+    if command -v google-chrome-stable >/dev/null 2>&1; then
+        echo "✓ Chrome: $(google-chrome-stable --version 2>/dev/null)"
+    else
+        echo "✗ Chrome: not found"
+    fi
+}
+
+case "${1:-}" in
+    login)      cmd_login ;;
+    nlm-login)  cmd_nlm_login ;;
+    claude-mem) cmd_claude_mem ;;
+    status)     cmd_status ;;
+    *)          usage ;;
+esac

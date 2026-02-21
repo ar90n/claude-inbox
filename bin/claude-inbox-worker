@@ -13,6 +13,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Ensure ~/.claude.json exists (required by Claude Code; not in named volume)
+[ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
+
 export CLAUDE_INBOX="${CLAUDE_INBOX:-$HOME/.claude-inbox}"
 SYSTEM="$ROOT_DIR/prompts/system.md"
 WORKER_ID="w.$$"
