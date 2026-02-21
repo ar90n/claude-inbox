@@ -58,7 +58,13 @@ run_claude() {
     local prompt="$1" session_id="$2" task_workdir="${3:-}"
 
     # Task-level workdir takes priority over global CLAUDE_INBOX_WORKDIR
+    # If the resolved workdir doesn't exist (e.g. host path submitted to Docker worker),
+    # fall back to WORKDIR then to no-cd.
     local effective_workdir="${task_workdir:-${WORKDIR:-}}"
+    if [ -n "$effective_workdir" ] && [ ! -d "$effective_workdir" ]; then
+        log "  workdir '$effective_workdir' not found, falling back to WORKDIR='${WORKDIR:-}'"
+        effective_workdir="${WORKDIR:-}"
+    fi
 
     # Common arguments
     local common_args=(-p "$prompt" --dangerously-skip-permissions)

@@ -12,7 +12,7 @@ services:
       - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
       - ${HOME}/.claude:/home/claude-inbox/.claude
       - ${HOME}/.claude.json:/home/claude-inbox/.claude.json
-      - workdir:/workdir
+      - ${CLAUDE_INBOX_WORKDIR:-/workspaces/claude-inbox}:/workdir
     restart: unless-stopped
     deploy:
       replicas: ${WORKERS:-1}
@@ -28,6 +28,3 @@ services:
     volumes:
       - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
     restart: unless-stopped
-
-volumes:
-  workdir:
