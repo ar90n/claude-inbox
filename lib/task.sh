@@ -117,3 +117,37 @@ task_recover() {
     done
     rmdir "$cur_dir" 2>/dev/null || true
 }
+
+# --- Session locking ---
+# Prevent concurrent access to the same Claude session.
+# Uses flock: kernel-managed, auto-released on process death (including SIGKILL).
+# Non-blocking: returns 1 if session is busy (caller should re-queue).
+SESSION_LOCK_FD=""
+
+session_lock() {
+    local session_id="$1"
+    [ -z "$session_id" ] && return 0
+
+    local lock_dir="$CLAUDE_INBOX/state/session"
+    mkdir -p "$lock_dir"
+
+    # Open lock file on a dynamic fd
+    exec {SESSION_LOCK_FD}>"$lock_dir/${session_id}.flock"
+
+    # Non-blocking: try to acquire, fail fast if held by another worker
+    if flock -n "$SESSION_LOCK_FD"; then
+        return 0
+    fi
+
+    # Lock held — close fd, report busy
+    exec {SESSION_LOCK_FD}>&-
+    SESSION_LOCK_FD=""
+    return 1
+}
+
+session_unlock() {
+    if [ -n "${SESSION_LOCK_FD:-}" ]; then
+        exec {SESSION_LOCK_FD}>&-
+        SESSION_LOCK_FD=""
+    fi
+}

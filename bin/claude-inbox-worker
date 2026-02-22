@@ -42,6 +42,7 @@ source "$ROOT_DIR/lib/notify.sh"
 log() { printf '[%s] [%s] %s\n' "$(date -Is)" "$WORKER_ID" "$*" >&2; }
 
 cleanup() {
+    session_unlock
     task_recover "$WORKER_ID"
     log "stopped"
 }
@@ -143,6 +144,14 @@ while true; do
     task_workdir=$(extract_meta "$task_content" "workdir")
     task_model=$(extract_meta "$task_content" "model")
 
+    # --- Session lock (prevent concurrent access to same Claude session) ---
+    if ! session_lock "$session_id"; then
+        log "QUEUE $bname (session=$session_id busy, re-queuing)"
+        mv "$task_file" "$CLAUDE_INBOX/new/$bname"
+        sleep 2  # backoff to avoid tight claim-requeue loop
+        continue
+    fi
+
     # --- Progress notification (deterministic, pre-agent) ---
     channel=$(extract_meta "$task_content" "channel")
     chat_id=$(extract_meta "$task_content" "chat_id")
@@ -156,6 +165,7 @@ while true; do
     rc=0
     result=$(run_claude "$task_content" "$session_id" "$task_workdir" "$task_model") || rc=$?
 
+    session_unlock
     dt=$(( $(date +%s) - t0 ))
 
     if [ $rc -eq 0 ]; then
