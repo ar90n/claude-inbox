@@ -1,0 +1,192 @@
+#!/bin/bash
+# claude-inbox-url-watch: URL change detection daemon
+#
+# Reads watch definitions from $CLAUDE_INBOX/schedule/watch.d/*.watch
+# Polls URLs at specified intervals, detects content changes via SHA-256,
+# and submits tasks with diff context via task_submit.
+#
+# State stored in $CLAUDE_INBOX/schedule/state/watch/{name}.{hash,content,last}
+#
+# Usage:
+#   bin/claude-inbox-url-watch
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+export CLAUDE_INBOX="${CLAUDE_INBOX:-$HOME/.claude-inbox}"
+
+source "$ROOT_DIR/lib/task.sh"
+source "$ROOT_DIR/lib/observe.sh"
+
+SCHEDULE_DIR="$CLAUDE_INBOX/schedule"
+WATCH_DIR="$SCHEDULE_DIR/watch.d"
+STATE_DIR="$SCHEDULE_DIR/state/watch"
+TMP_DIR="$SCHEDULE_DIR/tmp"
+mkdir -p "$WATCH_DIR" "$STATE_DIR" "$TMP_DIR"
+
+log() { printf '[%s] [url-watch] %s\n' "$(date -Is)" "$*" >&2; }
+
+generate_session_id() {
+    python3 -c "import uuid; print(uuid.uuid5(uuid.NAMESPACE_URL, '$1'))"
+}
+
+# --- Parse a .watch file into shell variables ---
+parse_watch() {
+    local watch_file="$1"
+    watch_name="" watch_url="" watch_interval="" watch_prompt=""
+    watch_channel="" watch_chat_id="" watch_content_filter=""
+    watch_headers="" watch_priority=5 watch_model=""
+
+    while IFS='=' read -r key value; do
+        [[ "$key" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "$key" ]] && continue
+        key=$(echo "$key" | tr -d '[:space:]')
+        case "$key" in
+            name)           watch_name="$value" ;;
+            url)            watch_url="$value" ;;
+            interval)       watch_interval="$value" ;;
+            prompt)         watch_prompt="$value" ;;
+            channel)        watch_channel="$value" ;;
+            chat_id)        watch_chat_id="$value" ;;
+            content_filter) watch_content_filter="$value" ;;
+            headers)        watch_headers="${watch_headers:+${watch_headers};}$value" ;;
+            priority)       watch_priority="$value" ;;
+            model)          watch_model="$value" ;;
+        esac
+    done < "$watch_file"
+}
+
+# --- Check if enough time has passed since last check ---
+should_check() {
+    local name="$1" interval="$2"
+    local last_file="$STATE_DIR/${name}.last"
+    [ -f "$last_file" ] || return 0
+
+    local last_ts now_ts
+    last_ts=$(cat "$last_file")
+    now_ts=$(date +%s)
+    [ $(( now_ts - last_ts )) -ge "$interval" ]
+}
+
+# --- Mark last check time ---
+mark_checked() {
+    local name="$1"
+    printf '%s\n' "$(date +%s)" > "$STATE_DIR/${name}.last"
+}
+
+# --- Fetch URL content, optionally filtered ---
+fetch_content() {
+    local url="$1" filter="$2" headers="$3"
+
+    local curl_args=(-sf --max-time 30 -L)
+
+    # Add headers (semicolon-separated)
+    if [ -n "$headers" ]; then
+        local h
+        IFS=';' read -ra header_arr <<< "$headers"
+        for h in "${header_arr[@]}"; do
+            h=$(echo "$h" | sed 's/^[[:space:]]*//')
+            [ -n "$h" ] && curl_args+=(-H "$h")
+        done
+    fi
+
+    local raw
+    raw=$(curl "${curl_args[@]}" "$url") || return 1
+
+    if [ -n "$filter" ]; then
+        echo "$raw" | eval "$filter" 2>/dev/null || echo "$raw"
+    else
+        echo "$raw"
+    fi
+}
+
+# --- Main loop ---
+log "started (watch_dir=$WATCH_DIR)"
+observe "url-watch started"
+
+while true; do
+    for watch_file in "$WATCH_DIR"/*.watch; do
+        [ -f "$watch_file" ] || continue
+
+        parse_watch "$watch_file"
+
+        # Validate required fields
+        if [ -z "$watch_name" ] || [ -z "$watch_url" ] || [ -z "$watch_interval" ] || [ -z "$watch_prompt" ]; then
+            continue
+        fi
+
+        # Check interval
+        should_check "$watch_name" "$watch_interval" || continue
+
+        # Fetch current content
+        current_content=$(fetch_content "$watch_url" "$watch_content_filter" "$watch_headers") || {
+            log "FETCH_FAIL name=$watch_name url=$watch_url"
+            mark_checked "$watch_name"
+            continue
+        }
+
+        current_hash=$(printf '%s' "$current_content" | sha256sum | cut -d' ' -f1)
+
+        # Compare with stored hash
+        stored_hash=""
+        [ -f "$STATE_DIR/${watch_name}.hash" ] && stored_hash=$(cat "$STATE_DIR/${watch_name}.hash")
+
+        if [ "$current_hash" = "$stored_hash" ]; then
+            mark_checked "$watch_name"
+            continue
+        fi
+
+        # --- Content changed ---
+        log "CHANGE name=$watch_name"
+
+        # Generate diff context
+        old_content=""
+        [ -f "$STATE_DIR/${watch_name}.content" ] && old_content=$(cat "$STATE_DIR/${watch_name}.content")
+
+        diff_context=""
+        if [ -n "$old_content" ]; then
+            diff_context=$(diff <(echo "$old_content") <(echo "$current_content") || true)
+        fi
+
+        # Build task prompt
+        session_id=$(generate_session_id "watch:${watch_name}")
+        header="[from=url-watch channel=${watch_channel:-url-watch} watch=${watch_name} session_id=${session_id}"
+        [ -n "$watch_chat_id" ] && header="$header chat_id=$watch_chat_id"
+        [ -n "$watch_model" ] && header="$header model=$watch_model"
+        header="$header]"
+
+        if [ -n "$diff_context" ]; then
+            change_section="--- Changes ---
+$diff_context
+
+--- Current content ---
+$(echo "$current_content" | head -200)"
+        else
+            change_section="--- Current content (first observation) ---
+$(echo "$current_content" | head -200)"
+        fi
+
+        prompt="${header}
+
+${watch_prompt}
+
+URL: ${watch_url}
+
+${change_section}"
+
+        task_submit --prompt "$prompt" --priority "$watch_priority"
+        log "SUBMITTED name=$watch_name"
+
+        # Update state (atomic: write to tmp, then mv)
+        printf '%s\n' "$current_hash" > "$TMP_DIR/${watch_name}.hash"
+        mv "$TMP_DIR/${watch_name}.hash" "$STATE_DIR/${watch_name}.hash"
+
+        printf '%s\n' "$current_content" > "$TMP_DIR/${watch_name}.content"
+        mv "$TMP_DIR/${watch_name}.content" "$STATE_DIR/${watch_name}.content"
+
+        mark_checked "$watch_name"
+    done
+
+    sleep 60
+done

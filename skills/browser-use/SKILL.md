@@ -3,101 +3,72 @@ name: browser-use
 description: >
   This skill should be used when the user asks to "browse a website",
   "fill out a form", "click a button", "automate browser actions",
-  "log into a site", or needs AI-driven web browser automation.
-  Uses the browser-use Python library with Playwright and Claude.
-  Requires ANTHROPIC_API_KEY in the environment.
+  "log into a site", "scrape a page", or needs web browser automation.
+  Two backends: Claude in Chrome (preferred) and Playwright MCP (fallback).
 ---
 
 # Browser Automation
 
-Automate browser interactions using the `browser-use` Python library.
-Repository: https://github.com/browser-use/browser-use
+Two browser backends are available. **Check your tool list to determine which to use.**
 
-## Prerequisites
+## Tool Detection
 
-- Google Chrome installed at `/usr/bin/google-chrome-stable`
-- `ANTHROPIC_API_KEY` set (used by the nested Claude agent that drives the browser)
-- For visible browser: `DISPLAY` set + X11 forwarding
+1. If you have a `computer` tool (type=computer_20250124) → use **Claude in Chrome**
+2. If you have `browser_navigate`, `browser_click` etc. → use **Playwright MCP**
+3. If both are available → prefer **Claude in Chrome**
 
-## Usage
+## Claude in Chrome
 
-Write and run a Python script using `browser-use`:
+Claude's native browser control. You see the screen and interact naturally.
 
-```python
-import asyncio
-from browser_use import Agent, Browser, BrowserConfig
-from langchain_anthropic import ChatAnthropic
+- You have a `computer` tool — use it to take screenshots, click, type, scroll
+- Works like computer_use: coordinate-based interaction with visual feedback
+- Chrome profile and cookies are available (logged-in sessions persist)
+- Requires: `CLAUDE_CHROME=1` + `DISPLAY` (X11)
 
-async def main():
-    browser = Browser(config=BrowserConfig(
-        chrome_instance_path='/usr/bin/google-chrome-stable',
-        extra_chromium_args=['--no-sandbox', '--disable-dev-shm-usage'],
-        headless=True,   # False if DISPLAY is set and you want visible browser
-    ))
-    agent = Agent(
-        task="YOUR TASK HERE",
-        llm=ChatAnthropic(model="claude-haiku-4-5-20251001"),
-        browser=browser,
-    )
-    result = await agent.run()
-    await browser.close()
-    return result
+## Playwright MCP
 
-print(asyncio.run(main()))
+Headless browser automation via MCP tools. No display needed.
+
+Setup: `bin/claude-inbox-setup playwright`
+
+### Tools
+
+| Category | Tools |
+|---|---|
+| Navigation | `browser_navigate`, `browser_go_back`, `browser_go_forward`, `browser_wait` |
+| Interaction | `browser_click`, `browser_type`, `browser_select_option`, `browser_hover`, `browser_drag`, `browser_press_key` |
+| Data | `browser_snapshot`, `browser_take_screenshot`, `browser_network_requests`, `browser_console_messages` |
+| Tabs | `browser_tab_new`, `browser_tab_select`, `browser_tab_close`, `browser_tab_list` |
+
+### Usage
+
+```
+1. browser_navigate → "https://example.com"
+2. browser_snapshot → read page content (accessibility tree)
+3. browser_click → interact with elements
+4. browser_type → fill in forms
 ```
 
-Run it:
-```bash
-python3 /tmp/browser_task.py
-```
+## Comparison
 
-## Using an Existing Chrome Account (Logged-in Profile)
-
-If `CHROME_PROFILE_DIR` is mounted (see docker-compose.yml), browser-use can access
-existing Google logins, saved passwords, and cookies from the host Chrome profile.
-
-```python
-import asyncio, os
-from browser_use import Agent, Browser, BrowserConfig
-from langchain_anthropic import ChatAnthropic
-
-async def main():
-    browser = Browser(config=BrowserConfig(
-        chrome_instance_path='/usr/bin/google-chrome-stable',
-        extra_chromium_args=['--no-sandbox', '--disable-dev-shm-usage'],
-        headless=True,
-        # Use mounted Chrome profile for existing logins
-        user_data_dir='/home/claude-inbox/.config/google-chrome',
-    ))
-    agent = Agent(
-        task="YOUR TASK HERE",
-        llm=ChatAnthropic(model="claude-haiku-4-5-20251001"),
-        browser=browser,
-    )
-    result = await agent.run()
-    await browser.close()
-    return result
-
-print(asyncio.run(main()))
-```
-
-**Setup**: uncomment the `CHROME_PROFILE_DIR` volume line in `docker-compose.yml` and
-set `CHROME_PROFILE_DIR=~/.config/google-chrome` in `.env`.
+| | Claude in Chrome | Playwright MCP |
+|---|---|---|
+| Tool to check | `computer` | `browser_navigate` |
+| Display | Required (X11) | Not needed (headless) |
+| Interaction | Visual (screenshots + coordinates) | Accessibility tree |
+| Cookies/login | Chrome profile persists | Fresh session each time |
+| Best for | Visual tasks, complex JS sites | Structured scraping, automation |
 
 ## Notes
 
-- Use `headless=True` for background tasks (no display needed)
-- Use `headless=False` with X11 forwarding for tasks that require visible interaction (e.g., OAuth)
-- `--no-sandbox` is required inside Docker containers
-- `langchain_anthropic` uses `ANTHROPIC_API_KEY` — separate from Claude Code's own auth
-- Use `claude-haiku-4-5-20251001` for the browser agent (fast and cheap for navigation)
-- Chrome profile is mounted read-only (`:ro`) — the container cannot corrupt your host profile
+- For long-running browser tasks, break into steps using `create-task`
+- Some sites detect headless browsers — Claude in Chrome avoids this
 
 ## Error Handling
 
 | Error | Action |
 |---|---|
-| `ANTHROPIC_API_KEY not set` | Set `ANTHROPIC_API_KEY` in `.env` and restart worker |
-| Chrome crash / sandbox error | Ensure `--no-sandbox` flag is passed |
-| Profile locked / in use | Close Chrome on the host first, then restart the container |
-| Task failed / wrong page | Retry with more detailed task description |
+| No browser tools | Run `bin/claude-inbox-setup playwright` or set `CLAUDE_CHROME=1` |
+| Navigation timeout | `browser_wait` before next action |
+| Element not found | `browser_snapshot` to see available elements |

@@ -27,8 +27,10 @@ Available skills:
 - **notify-slack** — Send results via Slack Incoming Webhook
 - **web-collect** — Collect tech news from HN and GitHub Trending
 - **notebooklm** — Generate podcasts via NotebookLM (nlm CLI)
-- **browser-use** — AI-driven web automation using browser-use + Playwright
+- **browser-use** — Browser automation via Playwright MCP (headless Chrome, no API key)
 - **create-task** — Queue follow-up tasks to the inbox
+- **schedule-task** — Register recurring cron jobs (daily news, weekly reports)
+- **url-watch** — Monitor URLs for changes (releases, blog posts, price changes)
 
 ## Notifications: Two Channels
 

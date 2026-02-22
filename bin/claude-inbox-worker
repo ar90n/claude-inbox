@@ -37,6 +37,7 @@ mkdir -p "$CLAUDE_INBOX"/{tmp,new,done,failed,state} "$CLAUDE_INBOX/cur/$WORKER_
 
 source "$ROOT_DIR/lib/task.sh"
 source "$ROOT_DIR/lib/observe.sh"
+source "$ROOT_DIR/lib/notify.sh"
 
 log() { printf '[%s] [%s] %s\n' "$(date -Is)" "$WORKER_ID" "$*" >&2; }
 
@@ -89,6 +90,7 @@ run_claude() {
     [ -n "$effective_model" ] && common_args+=(--model "$effective_model")
     [ -n "$system_prompt" ] && common_args+=(--system-prompt "$system_prompt")
     [ -d "$SKILLS_DIR" ] && common_args+=(--add-dir "$SKILLS_DIR")
+    [ "${CLAUDE_CHROME:-}" = "1" ] && common_args+=(--chrome)
 
     local run_cmd="claude"
     local result="" rc=0
@@ -140,6 +142,15 @@ while true; do
     session_id=$(extract_meta "$task_content" "session_id")
     task_workdir=$(extract_meta "$task_content" "workdir")
     task_model=$(extract_meta "$task_content" "model")
+
+    # --- Progress notification (deterministic, pre-agent) ---
+    channel=$(extract_meta "$task_content" "channel")
+    chat_id=$(extract_meta "$task_content" "chat_id")
+    msg_id=$(extract_meta "$task_content" "msg_id")
+
+    if [ "$channel" = "telegram" ] && [ -n "$chat_id" ]; then
+        notify_telegram "$chat_id" "..." "$msg_id"
+    fi
 
     # --- Execute ---
     rc=0

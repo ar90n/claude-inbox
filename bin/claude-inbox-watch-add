@@ -1,0 +1,98 @@
+#!/bin/bash
+# claude-inbox-watch-add: Add a URL watch to the schedule
+#
+# Usage:
+#   claude-inbox-watch-add --name claude-releases \
+#     --url "https://api.github.com/repos/anthropics/claude-code/releases/latest" \
+#     --interval 3600 "New release detected, summarize changes"
+#   claude-inbox-watch-add --name claude-releases \
+#     --url "..." --interval 3600 --chat-id 12345 \
+#     --content-filter "jq -r '.tag_name'" "Summarize the new release"
+
+set -euo pipefail
+
+export CLAUDE_INBOX="${CLAUDE_INBOX:-$HOME/.claude-inbox}"
+SCHEDULE_DIR="$CLAUDE_INBOX/schedule"
+WATCH_DIR="$SCHEDULE_DIR/watch.d"
+
+NAME=""
+URL=""
+INTERVAL=""
+CHANNEL=""
+CHAT_ID=""
+CONTENT_FILTER=""
+HEADERS=""
+PRIORITY=""
+MODEL=""
+PROMPT=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --name)           NAME="$2";           shift 2 ;;
+        --url)            URL="$2";            shift 2 ;;
+        --interval)       INTERVAL="$2";       shift 2 ;;
+        --channel)        CHANNEL="$2";        shift 2 ;;
+        --chat-id)        CHAT_ID="$2";        shift 2 ;;
+        --content-filter) CONTENT_FILTER="$2"; shift 2 ;;
+        --header)         HEADERS="${HEADERS:+${HEADERS};}$2"; shift 2 ;;
+        --priority)       PRIORITY="$2";       shift 2 ;;
+        --model)          MODEL="$2";          shift 2 ;;
+        --help|-h)
+            echo "Usage: claude-inbox-watch-add --name NAME --url URL --interval SECS [OPTIONS] PROMPT"
+            echo ""
+            echo "Options:"
+            echo "  --name NAME              Watch name (required)"
+            echo "  --url URL                URL to monitor (required)"
+            echo "  --interval SECS          Check interval in seconds (required)"
+            echo "  --channel CHANNEL        Notification channel (e.g., telegram)"
+            echo "  --chat-id ID             Telegram chat ID"
+            echo "  --content-filter CMD     Shell command to filter response before hashing"
+            echo "  --header HEADER          HTTP header (repeatable)"
+            echo "  --priority N             Task priority 0-9 (default: 5)"
+            echo "  --model MODEL            Model override (haiku/sonnet/opus)"
+            echo ""
+            echo "Examples:"
+            echo "  claude-inbox-watch-add --name gh-releases \\"
+            echo "    --url 'https://api.github.com/repos/owner/repo/releases/latest' \\"
+            echo "    --interval 3600 --content-filter 'jq -r .tag_name' \\"
+            echo "    'New release detected, summarize changes'"
+            exit 0
+            ;;
+        *) PROMPT="$1"; shift ;;
+    esac
+done
+
+[ -z "$NAME" ] && { echo "ERROR: --name required" >&2; exit 1; }
+[ -z "$URL" ] && { echo "ERROR: --url required" >&2; exit 1; }
+[ -z "$INTERVAL" ] && { echo "ERROR: --interval required" >&2; exit 1; }
+[ -z "$PROMPT" ] && PROMPT=$(cat)
+[ -z "$PROMPT" ] && { echo "ERROR: no prompt" >&2; exit 1; }
+
+# Auto-set channel=telegram if chat_id is provided
+[ -n "$CHAT_ID" ] && [ -z "$CHANNEL" ] && CHANNEL="telegram"
+
+mkdir -p "$WATCH_DIR"
+
+WATCH_FILE="$WATCH_DIR/${NAME}.watch"
+
+{
+    echo "name=$NAME"
+    echo "url=$URL"
+    echo "interval=$INTERVAL"
+    echo "prompt=$PROMPT"
+    [ -n "$CHANNEL" ]        && echo "channel=$CHANNEL"
+    [ -n "$CHAT_ID" ]        && echo "chat_id=$CHAT_ID"
+    [ -n "$CONTENT_FILTER" ] && echo "content_filter=$CONTENT_FILTER"
+    [ -n "$PRIORITY" ]       && echo "priority=$PRIORITY"
+    [ -n "$MODEL" ]          && echo "model=$MODEL"
+    # Headers: split semicolons back to separate lines
+    if [ -n "$HEADERS" ]; then
+        IFS=';' read -ra h_arr <<< "$HEADERS"
+        for h in "${h_arr[@]}"; do
+            h=$(echo "$h" | sed 's/^[[:space:]]*//')
+            [ -n "$h" ] && echo "headers=$h"
+        done
+    fi
+} > "$WATCH_FILE"
+
+echo "created: $WATCH_FILE"

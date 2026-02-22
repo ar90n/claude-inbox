@@ -24,7 +24,8 @@ services:
       CLAUDE_MODEL: ${CLAUDE_MODEL:-}
       CLAUDE_MEM_WORKER_HOST: claude-mem
       CLAUDE_MEM_WORKER_PORT: "37777"
-      DISPLAY: ${DISPLAY:-}  # uncomment with /tmp/.X11-unix mount for visible browser
+      CLAUDE_CHROME: ${CLAUDE_CHROME:-}  # set to 1 to enable Claude in Chrome (requires Chrome extension + DISPLAY)
+      DISPLAY: ${DISPLAY:-}  # required for Claude in Chrome and nlm-login
     volumes:
       - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
       - claude_dot:/home/claude-inbox/.claude
@@ -44,6 +45,30 @@ services:
   bridge-telegram:
     build: .
     command: ["bin/claude-inbox-bridge-telegram", "--skip-pending"]
+    user: "${DOCKER_UID}:${DOCKER_GID}"
+    env_file: .env
+    environment:
+      CLAUDE_INBOX: /data/inbox
+      HOME: /home/claude-inbox
+    volumes:
+      - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
+#    restart: unless-stopped
+
+  cron:
+    build: .
+    command: ["bin/claude-inbox-cron"]
+    user: "${DOCKER_UID}:${DOCKER_GID}"
+    env_file: .env
+    environment:
+      CLAUDE_INBOX: /data/inbox
+      HOME: /home/claude-inbox
+    volumes:
+      - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
+#    restart: unless-stopped
+
+  url-watch:
+    build: .
+    command: ["bin/claude-inbox-url-watch"]
     user: "${DOCKER_UID}:${DOCKER_GID}"
     env_file: .env
     environment:

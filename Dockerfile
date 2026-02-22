@@ -11,7 +11,7 @@ RUN curl -fsSL https://dl.google.com/linux/direct/google-chrome-stable_current_a
     && rm /tmp/google-chrome.deb \
     && rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g @anthropic-ai/claude-code claude-mem \
+RUN npm install -g @anthropic-ai/claude-code claude-mem @playwright/mcp \
     && npm cache clean --force
 
 # Install Bun (required by claude-mem worker service)
@@ -21,8 +21,7 @@ RUN curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 
 RUN pip3 install --break-system-packages \
-        notebooklm-mcp-cli \
-        browser-use playwright langchain-anthropic
+        notebooklm-mcp-cli
 
 # Pre-create home dir and Chrome-required subdirs with open permissions
 # so any UID (via docker-compose user:) can write to them

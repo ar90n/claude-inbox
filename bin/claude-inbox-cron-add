@@ -1,0 +1,73 @@
+#!/bin/bash
+# claude-inbox-cron-add: Add a cron job to the schedule
+#
+# Usage:
+#   claude-inbox-cron-add --name morning-news --schedule "0 8 * * *" "Collect news"
+#   claude-inbox-cron-add --name morning-news --schedule "0 8 * * *" --chat-id 12345 "Collect news"
+#   claude-inbox-cron-add --name test --schedule "* * * * *" --model haiku "Test cron"
+
+set -euo pipefail
+
+export CLAUDE_INBOX="${CLAUDE_INBOX:-$HOME/.claude-inbox}"
+SCHEDULE_DIR="$CLAUDE_INBOX/schedule"
+CRON_DIR="$SCHEDULE_DIR/cron.d"
+
+NAME=""
+SCHEDULE=""
+CHANNEL=""
+CHAT_ID=""
+PRIORITY=""
+MODEL=""
+PROMPT=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --name)     NAME="$2";     shift 2 ;;
+        --schedule) SCHEDULE="$2"; shift 2 ;;
+        --channel)  CHANNEL="$2";  shift 2 ;;
+        --chat-id)  CHAT_ID="$2";  shift 2 ;;
+        --priority) PRIORITY="$2"; shift 2 ;;
+        --model)    MODEL="$2";    shift 2 ;;
+        --help|-h)
+            echo "Usage: claude-inbox-cron-add --name NAME --schedule 'CRON' [OPTIONS] PROMPT"
+            echo ""
+            echo "Options:"
+            echo "  --name NAME        Job name (required)"
+            echo "  --schedule CRON    5-field cron expression (required)"
+            echo "  --channel CHANNEL  Notification channel (e.g., telegram)"
+            echo "  --chat-id ID       Telegram chat ID"
+            echo "  --priority N       Task priority 0-9 (default: 5)"
+            echo "  --model MODEL      Model override (haiku/sonnet/opus)"
+            echo ""
+            echo "Examples:"
+            echo "  claude-inbox-cron-add --name news --schedule '0 8 * * *' 'Collect daily news'"
+            echo "  claude-inbox-cron-add --name news --schedule '0 8 * * *' --chat-id 12345 'Collect news and send via Telegram'"
+            exit 0
+            ;;
+        *) PROMPT="$1"; shift ;;
+    esac
+done
+
+[ -z "$NAME" ] && { echo "ERROR: --name required" >&2; exit 1; }
+[ -z "$SCHEDULE" ] && { echo "ERROR: --schedule required" >&2; exit 1; }
+[ -z "$PROMPT" ] && PROMPT=$(cat)
+[ -z "$PROMPT" ] && { echo "ERROR: no prompt" >&2; exit 1; }
+
+# Auto-set channel=telegram if chat_id is provided
+[ -n "$CHAT_ID" ] && [ -z "$CHANNEL" ] && CHANNEL="telegram"
+
+mkdir -p "$CRON_DIR"
+
+JOB_FILE="$CRON_DIR/${NAME}.job"
+
+{
+    echo "name=$NAME"
+    echo "schedule=$SCHEDULE"
+    echo "prompt=$PROMPT"
+    [ -n "$CHANNEL" ]  && echo "channel=$CHANNEL"
+    [ -n "$CHAT_ID" ]  && echo "chat_id=$CHAT_ID"
+    [ -n "$PRIORITY" ] && echo "priority=$PRIORITY"
+    [ -n "$MODEL" ]    && echo "model=$MODEL"
+} > "$JOB_FILE"
+
+echo "created: $JOB_FILE"
