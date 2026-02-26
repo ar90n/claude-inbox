@@ -1,3 +1,7 @@
+[![CI](https://github.com/ar90n/claude-inbox/actions/workflows/ci.yml/badge.svg)](https://github.com/ar90n/claude-inbox/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+![Built with vibe coding](https://img.shields.io/badge/built%20with-vibe%20coding-ff69b4)
+
 # claude-inbox
 
 An async task queue that lets you use Claude Code from Telegram. Send a message from your phone, Claude works on it, and replies back.
