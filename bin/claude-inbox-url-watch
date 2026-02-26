@@ -18,6 +18,7 @@ export CLAUDE_INBOX="${CLAUDE_INBOX:-$HOME/.claude-inbox}"
 
 source "$ROOT_DIR/lib/task.sh"
 source "$ROOT_DIR/lib/observe.sh"
+source "$ROOT_DIR/lib/util.sh"
 
 SCHEDULE_DIR="$CLAUDE_INBOX/schedule"
 WATCH_DIR="$SCHEDULE_DIR/watch.d"
@@ -26,10 +27,6 @@ TMP_DIR="$SCHEDULE_DIR/tmp"
 mkdir -p "$WATCH_DIR" "$STATE_DIR" "$TMP_DIR"
 
 log() { printf '[%s] [url-watch] %s\n' "$(date -Is)" "$*" >&2; }
-
-generate_session_id() {
-    python3 -c "import uuid; print(uuid.uuid5(uuid.NAMESPACE_URL, '$1'))"
-}
 
 # --- Parse a .watch file into shell variables ---
 parse_watch() {

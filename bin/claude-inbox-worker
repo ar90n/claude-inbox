@@ -1,11 +1,13 @@
 #!/bin/bash
-# worker: Fetch tasks from the inbox and execute them with claude
+# worker: Claim task directories from tasks/ and execute them with claude
 #
-# v3.1: When session_id is present, always try --resume first.
-#       Falls back to --session-id if the session doesn't exist.
-#       The resume metadata flag is no longer needed (worker auto-detects).
+# Tasks are directories: tasks/{job_id}/ containing:
+#   - prompt.txt (required): the prompt to send to Claude
+#   - meta (optional): k=v metadata (session_id, channel, chat_id, etc.)
+#   - attached files (optional): files Claude can read
 #
-# Results are saved to done/ as .result files (for logging).
+# The preprocessor converts inbox items (new/) into task directories (tasks/).
+# Results are saved to done/{job_id}/result.
 # Context is retained by Claude's session storage.
 
 set -euo pipefail
@@ -33,11 +35,12 @@ if [ -f "$ROOT_DIR/prompts/CLAUDE.md" ]; then
     cp "$ROOT_DIR/prompts/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
 fi
 
-mkdir -p "$CLAUDE_INBOX"/{tmp,new,done,failed,state} "$CLAUDE_INBOX/cur/$WORKER_ID"
+mkdir -p "$CLAUDE_INBOX"/{tmp,new,tasks,done,failed,state} "$CLAUDE_INBOX/cur/$WORKER_ID"
 
 source "$ROOT_DIR/lib/task.sh"
 source "$ROOT_DIR/lib/observe.sh"
 source "$ROOT_DIR/lib/notify.sh"
+source "$ROOT_DIR/lib/util.sh"
 
 log() { printf '[%s] [%s] %s\n' "$(date -Is)" "$WORKER_ID" "$*" >&2; }
 
@@ -54,31 +57,21 @@ system_prompt=""
 agent_md="$ROOT_DIR/prompts/CLAUDE.md"
 [ -f "$agent_md" ] && system_prompt="${system_prompt}"$'\n\n'"$(cat "$agent_md")"
 
-# --- Metadata extraction ---
-# v3.1 format: [from=User channel=telegram chat_id=12345 msg_id=200 session_id=xxx]
-extract_meta() {
-    local content="$1" key="$2"
-    echo "$content" | head -1 | grep -oP "${key}=\K[^ \]]*" || true
+# --- Read metadata from task directory ---
+read_meta() {
+    local task_dir="$1" key="$2"
+    [ -f "$task_dir/meta" ] || return 0
+    grep -oP "^${key}=\K.*" "$task_dir/meta" 2>/dev/null || true
 }
 
-wait_for_task() {
-    if command -v inotifywait &>/dev/null; then
-        inotifywait -qq -e moved_to -t 5 "$CLAUDE_INBOX/new" 2>/dev/null || true
-    elif command -v fswatch &>/dev/null; then
-        timeout 5 fswatch --one-event --latency=0.5 "$CLAUDE_INBOX/new" 2>/dev/null || true
-    else
-        sleep 2
-    fi
-}
+wait_for_task() { wait_for_events "$CLAUDE_INBOX/tasks"; }
 
 # --- Run claude with --resume fallback ---
-# $1: prompt, $2: session_id, $3: workdir (task-level, overrides CLAUDE_INBOX_WORKDIR)
+# $1: prompt, $2: session_id, $3: workdir, $4: model
 run_claude() {
     local prompt="$1" session_id="$2" task_workdir="${3:-}" task_model="${4:-}"
 
     # Task-level workdir takes priority over global CLAUDE_INBOX_WORKDIR
-    # If the resolved workdir doesn't exist (e.g. host path submitted to Docker worker),
-    # fall back to WORKDIR then to no-cd.
     local effective_workdir="${task_workdir:-${WORKDIR:-}}"
     if [ -n "$effective_workdir" ] && [ ! -d "$effective_workdir" ]; then
         log "  workdir '$effective_workdir' not found, falling back to WORKDIR='${WORKDIR:-}'"
@@ -115,7 +108,7 @@ run_claude() {
         log "  --resume failed, falling back to --session-id"
         _run --session-id "$session_id" || rc=$?
     else
-        # No session_id (e.g. submitted via claude-inbox-add)
+        # No session_id
         log "  no session_id, running without session"
         _run || rc=$?
     fi
@@ -132,48 +125,67 @@ while true; do
     [ "$process_pending" = false ] && wait_for_task
     process_pending=false
 
-    task_file=$(task_claim "$WORKER_ID") || continue
+    task_dir=$(task_claim "$WORKER_ID") || continue
     process_pending=true
 
-    bname=$(basename "$task_file")
-    log "START $bname"
+    job_id=$(basename "$task_dir")
+    log "START $job_id"
     t0=$(date +%s)
 
-    task_content=$(cat "$task_file")
-    session_id=$(extract_meta "$task_content" "session_id")
-    task_workdir=$(extract_meta "$task_content" "workdir")
-    task_model=$(extract_meta "$task_content" "model")
+    # Read prompt
+    prompt=$(cat "$task_dir/prompt.txt")
+
+    # Read metadata
+    session_id=$(read_meta "$task_dir" "session_id")
+    task_model=$(read_meta "$task_dir" "model")
+    task_workdir=$(read_meta "$task_dir" "workdir")
+    channel=$(read_meta "$task_dir" "channel")
+    chat_id=$(read_meta "$task_dir" "chat_id")
+    msg_id=$(read_meta "$task_dir" "msg_id")
+
+    # Reconstruct metadata header for the agent (it needs chat_id, channel, etc.)
+    if [ -f "$task_dir/meta" ] && [ -s "$task_dir/meta" ]; then
+        meta_header="[$(tr '\n' ' ' < "$task_dir/meta" | sed 's/ $//')]"
+        prompt="${meta_header}"$'\n\n'"${prompt}"
+    fi
+
+    # Append attached file hints to prompt
+    attached_files=$(find "$task_dir" -maxdepth 1 -type f \
+        ! -name prompt.txt ! -name meta ! -name result ! -name '.*' 2>/dev/null || true)
+    if [ -n "$attached_files" ]; then
+        prompt+=$'\n\n[Attached files — read with the Read tool]\n'
+        while IFS= read -r f; do
+            mime=$(file -b --mime-type "$f" 2>/dev/null || echo "unknown")
+            prompt+="- $f ($mime)"$'\n'
+        done <<< "$attached_files"
+    fi
 
     # --- Session lock (prevent concurrent access to same Claude session) ---
     if ! session_lock "$session_id"; then
-        log "QUEUE $bname (session=$session_id busy, re-queuing)"
-        mv "$task_file" "$CLAUDE_INBOX/new/$bname"
+        log "QUEUE $job_id (session=$session_id busy, re-queuing)"
+        mv "$task_dir" "$CLAUDE_INBOX/tasks/$job_id"
         sleep 2  # backoff to avoid tight claim-requeue loop
         continue
     fi
 
     # --- Progress notification (deterministic, pre-agent) ---
-    channel=$(extract_meta "$task_content" "channel")
-    chat_id=$(extract_meta "$task_content" "chat_id")
-    msg_id=$(extract_meta "$task_content" "msg_id")
-
     if [ "$channel" = "telegram" ] && [ -n "$chat_id" ]; then
         notify_telegram "$chat_id" "..." "$msg_id"
     fi
 
     # --- Execute ---
     rc=0
-    result=$(run_claude "$task_content" "$session_id" "$task_workdir" "$task_model") || rc=$?
+    result=$(run_claude "$prompt" "$session_id" "$task_workdir" "$task_model") || rc=$?
 
     session_unlock
     dt=$(( $(date +%s) - t0 ))
 
     if [ $rc -eq 0 ]; then
-        task_complete "$task_file" "$result"
-        log "DONE  $bname (${dt}s, session=${session_id:-none}, model=${task_model:-${CLAUDE_MODEL:-default}})"
+        task_complete "$task_dir" "$result"
+        log "DONE  $job_id (${dt}s, session=${session_id:-none}, model=${task_model:-${CLAUDE_MODEL:-default}})"
     else
-        task_fail "$task_file" "$result"
-        log "FAIL  $bname (exit=$rc, ${dt}s)"
-        observe "task $bname failed (exit=$rc, ${dt}s)"
+        task_fail "$task_dir" "$result"
+        log "FAIL  $job_id (exit=$rc, ${dt}s)"
+        observe "task $job_id failed (exit=$rc, ${dt}s)"
     fi
 done

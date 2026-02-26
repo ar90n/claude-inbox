@@ -2,7 +2,9 @@
 # inbox-add: CLI tool to submit tasks to the inbox queue
 #
 # Usage:
-#   inbox-add "Collect today's top 10 from HN and GitHub Trending, send via Telegram"
+#   inbox-add "Collect today's top 10 from HN and GitHub Trending"
+#   inbox-add --file report.pdf "Summarize this"
+#   inbox-add --file img1.jpg --file img2.jpg "Compare these images"
 #   echo "prompt body" | inbox-add
 #   inbox-add --priority 1 "Urgent task"
 
@@ -17,14 +19,17 @@ source "$ROOT_DIR/lib/task.sh"
 PRIORITY=5
 MODEL=""
 PROMPT=""
+FILES=()
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --priority) PRIORITY="$2"; shift 2 ;;
         --model)    MODEL="$2";    shift 2 ;;
+        --file)     FILES+=("$2"); shift 2 ;;
         --help|-h)
-            echo "Usage: inbox-add [--priority N] [--model MODEL] [PROMPT]"
+            echo "Usage: inbox-add [--priority N] [--model MODEL] [--file PATH]... [PROMPT]"
             echo "  If PROMPT is omitted, reads from stdin"
+            echo "  --file: attach a file (can be specified multiple times)"
             echo "  MODEL: opus, sonnet, haiku (or full model name)"
             exit 0
             ;;
@@ -33,9 +38,26 @@ while [ $# -gt 0 ]; do
 done
 
 [ -z "$PROMPT" ] && PROMPT=$(cat)
-[ -z "$PROMPT" ] && { echo "ERROR: no prompt" >&2; exit 1; }
+[ -z "$PROMPT" ] && [ ${#FILES[@]} -eq 0 ] && { echo "ERROR: no prompt or files" >&2; exit 1; }
 
-HEADER="[channel=cli user=${USER:-$(id -un)} workdir=${PWD}${MODEL:+ model=${MODEL}}]"
+# Copy files to tmp and build files= metadata
+files_meta=""
+if [ ${#FILES[@]} -gt 0 ]; then
+    mkdir -p "$CLAUDE_INBOX/tmp"
+    file_paths=()
+    for f in "${FILES[@]}"; do
+        [ -f "$f" ] || { echo "ERROR: file not found: $f" >&2; exit 1; }
+        local_name="$(date +%s)-$(basename "$f")"
+        cp "$f" "$CLAUDE_INBOX/tmp/$local_name"
+        file_paths+=("$CLAUDE_INBOX/tmp/$local_name")
+    done
+    files_meta=" files=$(IFS=','; echo "${file_paths[*]}")"
+fi
+
+# Default prompt for file-only submissions
+[ -z "$PROMPT" ] && PROMPT="Process the attached file(s)."
+
+HEADER="[channel=cli user=${USER:-$(id -un)} workdir=${PWD}${MODEL:+ model=${MODEL}}${files_meta}]"
 FULL_PROMPT="${HEADER}
 
 ${PROMPT}"

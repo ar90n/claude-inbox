@@ -17,7 +17,7 @@ current session, include `session_id` in the metadata so the next
 worker can `--resume` and retain full conversation context:
 
 ```bash
-source "$CLAUDE_INBOX/lib/task.sh"
+source /app/lib/task.sh
 
 # With session continuity (preferred for chained tasks)
 # The session_id is available from the current task's metadata

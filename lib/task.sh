@@ -1,15 +1,16 @@
 #!/bin/bash
 # lib/task.sh: Atomic task operations (infrastructure layer)
 #
-# Sourced by worker.sh. These are system-level functions,
+# Sourced by worker and preprocessor. These are system-level functions,
 # not skills — agents never invoke them directly.
 #
+# Tasks are directories: tasks/{job_id}/ containing prompt.txt, optional meta, optional files.
 # Atomicity: All operations use the write-to-tmp + mv(2) rename pattern.
 
 : "${CLAUDE_INBOX:?CLAUDE_INBOX is not set}"
 
-# --- claim: Pick one task from new/ and move it to cur/$WORKER_ID/ ---
-# Success: prints file path to stdout, returns 0
+# --- claim: Pick one task directory from tasks/ and move it to cur/$WORKER_ID/ ---
+# Success: prints directory path to stdout, returns 0
 # No task or lost race: returns 1
 task_claim() {
     local worker_id="${1:?worker_id required}"
@@ -18,64 +19,55 @@ task_claim() {
 
     local max_retry=3
     for (( i=0; i<max_retry; i++ )); do
-        local task
-        task=$(find "$CLAUDE_INBOX/new" -maxdepth 1 -name '*.task' -type f 2>/dev/null \
-               | sort | head -1)
-        [ -z "$task" ] && return 1
+        local task_dir
+        task_dir=$(find "$CLAUDE_INBOX/tasks" -mindepth 1 -maxdepth 1 -type d 2>/dev/null \
+                   | sort | head -1)
+        [ -z "$task_dir" ] && return 1
 
-        local bname
-        bname=$(basename "$task")
+        local job_id
+        job_id=$(basename "$task_dir")
 
-        if mv "$task" "$cur_dir/$bname" 2>/dev/null; then
-            echo "$cur_dir/$bname"
+        if mv "$task_dir" "$cur_dir/$job_id" 2>/dev/null; then
+            echo "$cur_dir/$job_id"
             return 0
         fi
     done
     return 1
 }
 
-# --- complete: Write result and move task to done/ ---
+# --- complete: Write result and move task directory to done/ ---
 task_complete() {
-    local task_file="${1:?task_file required}"
+    local task_dir="${1:?task_dir required}"
     local result="${2:-}"
 
-    [ -f "$task_file" ] || { echo "ERROR: $task_file not found" >&2; return 2; }
+    [ -d "$task_dir" ] || { echo "ERROR: $task_dir not found" >&2; return 2; }
 
-    local bname id
-    bname=$(basename "$task_file")
-    id="${bname%.task}"
+    local job_id
+    job_id=$(basename "$task_dir")
 
-    mkdir -p "$CLAUDE_INBOX"/{tmp,done}
-
-    local rtmp="$CLAUDE_INBOX/tmp/$id.result"
-    printf '%s\n' "$result" > "$rtmp"
-
-    mv "$rtmp" "$CLAUDE_INBOX/done/$id.result"
-    mv "$task_file" "$CLAUDE_INBOX/done/$bname"
+    mkdir -p "$CLAUDE_INBOX/done"
+    printf '%s\n' "$result" > "$task_dir/result"
+    mv "$task_dir" "$CLAUDE_INBOX/done/$job_id"
 }
 
-# --- fail: Write error and move task to failed/ ---
+# --- fail: Write error and move task directory to failed/ ---
 task_fail() {
-    local task_file="${1:?task_file required}"
+    local task_dir="${1:?task_dir required}"
     local error="${2:-}"
 
-    [ -f "$task_file" ] || { echo "ERROR: $task_file not found" >&2; return 2; }
+    [ -d "$task_dir" ] || { echo "ERROR: $task_dir not found" >&2; return 2; }
 
-    local bname id
-    bname=$(basename "$task_file")
-    id="${bname%.task}"
+    local job_id
+    job_id=$(basename "$task_dir")
 
-    mkdir -p "$CLAUDE_INBOX"/{tmp,failed}
-
-    local rtmp="$CLAUDE_INBOX/tmp/$id.result"
-    printf '%s\n' "$error" > "$rtmp"
-
-    mv "$rtmp" "$CLAUDE_INBOX/failed/$id.result"
-    mv "$task_file" "$CLAUDE_INBOX/failed/$bname"
+    mkdir -p "$CLAUDE_INBOX/failed"
+    printf '%s\n' "$error" > "$task_dir/result"
+    mv "$task_dir" "$CLAUDE_INBOX/failed/$job_id"
 }
 
-# --- submit: Create a new task in new/ ---
-# Prints the file path to stdout
+# --- submit: Create a new .task file in new/ (for bridge/CLI) ---
+# The preprocessor converts these into task directories.
+# Prints the file path to stdout.
 task_submit() {
     local prompt=""
     local priority=5
@@ -105,15 +97,15 @@ task_submit() {
     echo "$CLAUDE_INBOX/new/$task_id.task"
 }
 
-# --- recover: Move orphaned tasks from cur/$WORKER_ID/ back to new/ ---
+# --- recover: Move orphaned task directories from cur/$WORKER_ID/ back to tasks/ ---
 task_recover() {
     local worker_id="${1:?worker_id required}"
     local cur_dir="$CLAUDE_INBOX/cur/$worker_id"
 
-    local f
-    for f in "$cur_dir"/*.task; do
-        [ -f "$f" ] || continue
-        mv "$f" "$CLAUDE_INBOX/new/" 2>/dev/null || true
+    local d
+    for d in "$cur_dir"/*/; do
+        [ -d "$d" ] || continue
+        mv "$d" "$CLAUDE_INBOX/tasks/" 2>/dev/null || true
     done
     rmdir "$cur_dir" 2>/dev/null || true
 }

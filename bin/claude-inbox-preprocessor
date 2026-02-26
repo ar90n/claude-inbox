@@ -1,0 +1,190 @@
+#!/bin/bash
+# preprocessor: Convert inbox items (new/) into self-contained task directories (tasks/)
+#
+# Handles three input types:
+#   1. .task files (from bridge/CLI) → extract metadata + prompt
+#   2. Action directory files (new/ocr/file.pdf) → apply action prompt template
+#   3. Root files (new/file.jpg) → apply default prompt by file type
+#
+# Output: tasks/{job_id}/ containing prompt.txt, optional meta, optional files
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+export CLAUDE_INBOX="${CLAUDE_INBOX:-$HOME/.claude-inbox}"
+WORKER_ID="pp.$$"
+
+mkdir -p "$CLAUDE_INBOX"/{tmp,new,tasks,done,failed}
+
+# Create default action directories with prompt templates
+_init_action() {
+    local name="$1" prompt="$2"
+    local dir="$CLAUDE_INBOX/new/$name"
+    mkdir -p "$dir"
+    [ -f "$dir/prompt.txt" ] || printf '%s\n' "$prompt" > "$dir/prompt.txt"
+}
+_init_action "ocr" "OCR this file. Return the extracted text as-is. Preserve the original formatting and layout."
+_init_action "transcribe" "Transcribe this audio file. Return the full transcript."
+
+source "$ROOT_DIR/lib/task.sh"
+source "$ROOT_DIR/lib/util.sh"
+
+log() { printf '[%s] [%s] %s\n' "$(date -Is)" "$WORKER_ID" "$*" >&2; }
+
+generate_job_id() {
+    local priority="${1:-5}"
+    local ts rand
+    ts=$(date +%Y%m%d-%H%M%S)
+    rand=$(head -c4 /dev/urandom | od -An -tx1 | tr -d ' \n')
+    echo "${priority}.${ts}.${rand}"
+}
+
+default_prompt_for() {
+    case "${1,,}" in
+        jpg|jpeg|png|gif|webp|heic) echo "Describe this image." ;;
+        pdf)                         echo "Summarize this PDF." ;;
+        mp3|wav|ogg|m4a|flac)       echo "Transcribe this audio." ;;
+        mp4|webm|mov)               echo "Describe this video." ;;
+        txt|md|csv|json|xml)        echo "Summarize this file." ;;
+        *)                          echo "Process this file." ;;
+    esac
+}
+
+# Convert a file from an action directory or root into a task directory
+convert_file() {
+    local file="$1" action="$2"
+    local bname job_id ext task_dir
+
+    bname=$(basename "$file")
+    ext="${bname##*.}"
+    job_id=$(generate_job_id)
+    task_dir="$CLAUDE_INBOX/tmp/$job_id"
+    mkdir -p "$task_dir"
+
+    # Generate prompt
+    if [ -n "$action" ]; then
+        local template="$CLAUDE_INBOX/new/$action/prompt.txt"
+        if [ -f "$template" ]; then
+            cp "$template" "$task_dir/prompt.txt"
+        else
+            echo "${action^} this file." > "$task_dir/prompt.txt"
+        fi
+    else
+        default_prompt_for "$ext" > "$task_dir/prompt.txt"
+    fi
+
+    # Move file into task directory
+    mv "$file" "$task_dir/$bname"
+
+    # Atomic move to tasks/
+    mv "$task_dir" "$CLAUDE_INBOX/tasks/$job_id"
+    log "CONVERT $bname → tasks/$job_id (action=${action:-default})"
+}
+
+# Convert a .task file (from bridge/CLI) into a task directory
+convert_task_file() {
+    local task_file="$1"
+    local content job_id task_dir first_line
+
+    # Extract priority from .task filename: {priority}.{ts}.{rand}.task
+    local task_basename priority
+    task_basename=$(basename "$task_file" .task)
+    priority="${task_basename%%.*}"
+    [[ "$priority" =~ ^[0-9]+$ ]] || priority=5
+
+    content=$(cat "$task_file")
+    job_id=$(generate_job_id "$priority")
+    task_dir="$CLAUDE_INBOX/tmp/$job_id"
+    mkdir -p "$task_dir"
+
+    first_line=$(head -1 <<< "$content")
+
+    if [[ "$first_line" == \[*\] ]]; then
+        # Parse metadata line: [key=val key=val ...]
+        # Remove brackets, split on space, write k=v lines
+        echo "$first_line" \
+            | sed 's/^\[//;s/\]$//' \
+            | tr ' ' '\n' \
+            | grep '=' > "$task_dir/meta"
+
+        # Body (everything after first line, skip leading blanks)
+        tail -n +2 <<< "$content" | sed '/./,$!d' > "$task_dir/prompt.txt"
+
+        # Handle files= metadata: move referenced files into task dir
+        local files_val
+        files_val=$(grep -oP '^files=\K.*' "$task_dir/meta" 2>/dev/null || true)
+        if [ -n "$files_val" ]; then
+            IFS=',' read -ra paths <<< "$files_val"
+            for p in "${paths[@]}"; do
+                if [ -f "$p" ]; then
+                    mv "$p" "$task_dir/"
+                fi
+            done
+            sed -i '/^files=/d' "$task_dir/meta"
+        fi
+
+        # If prompt.txt is empty (file-only task with no caption), generate default
+        if [ ! -s "$task_dir/prompt.txt" ]; then
+            local attached
+            attached=$(find "$task_dir" -maxdepth 1 -type f \
+                ! -name prompt.txt ! -name meta ! -name '.*' 2>/dev/null | head -1)
+            if [ -n "$attached" ]; then
+                local ext="${attached##*.}"
+                default_prompt_for "$ext" > "$task_dir/prompt.txt"
+            else
+                echo "Process this task." > "$task_dir/prompt.txt"
+            fi
+        fi
+    else
+        # No metadata — entire content is the prompt
+        printf '%s\n' "$content" > "$task_dir/prompt.txt"
+    fi
+
+    rm "$task_file"
+
+    # Atomic move to tasks/
+    mv "$task_dir" "$CLAUDE_INBOX/tasks/$job_id"
+    log "CONVERT $(basename "$task_file") → tasks/$job_id"
+}
+
+wait_for_inbox() { wait_for_events "$CLAUDE_INBOX/new"; }
+
+# --- Main loop ---
+log "started (inbox=$CLAUDE_INBOX)"
+process_pending=true
+
+while true; do
+    [ "$process_pending" = false ] && wait_for_inbox
+    process_pending=false
+
+    # 1. .task files (highest priority — from bridge/CLI)
+    for f in "$CLAUDE_INBOX/new"/*.task; do
+        [ -f "$f" ] || continue
+        convert_task_file "$f"
+        process_pending=true
+    done
+
+    # 2. Action directory files
+    for action_dir in "$CLAUDE_INBOX/new"/*/; do
+        [ -d "$action_dir" ] || continue
+        local_action=$(basename "$action_dir")
+        for f in "$action_dir"/*; do
+            [ -f "$f" ] || continue
+            [[ "$f" == */prompt.txt ]] && continue
+            [[ "$(basename "$f")" == .* ]] && continue
+            convert_file "$f" "$local_action"
+            process_pending=true
+        done
+    done
+
+    # 3. Root files (default inference)
+    for f in "$CLAUDE_INBOX/new"/*; do
+        [ -f "$f" ] || continue
+        [[ "$f" == *.task ]] && continue
+        [[ "$(basename "$f")" == .* ]] && continue
+        convert_file "$f" ""
+        process_pending=true
+    done
+done

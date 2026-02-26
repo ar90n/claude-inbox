@@ -19,15 +19,12 @@ export CLAUDE_INBOX="${CLAUDE_INBOX:-$HOME/.claude-inbox}"
 source "$ROOT_DIR/lib/task.sh"
 source "$ROOT_DIR/lib/cron.sh"
 source "$ROOT_DIR/lib/observe.sh"
+source "$ROOT_DIR/lib/util.sh"
 
 CRON_DIR="$SCHEDULE_DIR/cron.d"
 mkdir -p "$CRON_DIR" "$CRON_STATE_DIR" "$SCHEDULE_DIR/tmp"
 
 log() { printf '[%s] [cron] %s\n' "$(date -Is)" "$*" >&2; }
-
-generate_session_id() {
-    python3 -c "import uuid; print(uuid.uuid5(uuid.NAMESPACE_URL, '$1'))"
-}
 
 # --- Main loop ---
 log "started (cron_dir=$CRON_DIR)"

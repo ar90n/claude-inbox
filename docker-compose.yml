@@ -9,7 +9,7 @@ services:
       CLAUDE_MEM_WORKER_PORT: "37777"
     volumes:
       - claude_mem_data:/home/claude-inbox/.claude-mem
-#    restart: unless-stopped
+    restart: unless-stopped
 
   worker:
     build: .
@@ -25,6 +25,8 @@ services:
       CLAUDE_MEM_WORKER_HOST: claude-mem
       CLAUDE_MEM_WORKER_PORT: "37777"
       CLAUDE_CHROME: ${CLAUDE_CHROME:-}  # set to 1 to enable Claude in Chrome (requires Chrome extension + DISPLAY)
+      SWITCHBOT_TOKEN: ${SWITCHBOT_TOKEN:-}
+      SWITCHBOT_SECRET: ${SWITCHBOT_SECRET:-}
       DISPLAY: ${DISPLAY:-}  # required for Claude in Chrome and nlm-login
     volumes:
       - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
@@ -36,11 +38,24 @@ services:
       # - ${CHROME_PROFILE_DIR}:/home/claude-inbox/.config/google-chrome:ro
       # X11 forwarding for visible browser / nlm-login (optional — uncomment + set DISPLAY in environment below)
       - /tmp/.X11-unix:/tmp/.X11-unix:ro
-#    restart: unless-stopped
+    restart: unless-stopped
     depends_on:
       - claude-mem
+      - preprocessor
     deploy:
       replicas: ${WORKERS:-1}
+
+  preprocessor:
+    build: .
+    command: ["bin/claude-inbox-preprocessor"]
+    user: "${DOCKER_UID}:${DOCKER_GID}"
+    env_file: .env
+    environment:
+      CLAUDE_INBOX: /data/inbox
+      HOME: /home/claude-inbox
+    volumes:
+      - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
+    restart: unless-stopped
 
   bridge-telegram:
     build: .
@@ -52,7 +67,7 @@ services:
       HOME: /home/claude-inbox
     volumes:
       - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
-#    restart: unless-stopped
+    restart: unless-stopped
 
   cron:
     build: .
@@ -64,7 +79,7 @@ services:
       HOME: /home/claude-inbox
     volumes:
       - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
-#    restart: unless-stopped
+    restart: unless-stopped
 
   url-watch:
     build: .
@@ -76,7 +91,7 @@ services:
       HOME: /home/claude-inbox
     volumes:
       - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
-#    restart: unless-stopped
+    restart: unless-stopped
 
 volumes:
   claude_dot:      # ~/.claude/ — Claude Code auth & sessions

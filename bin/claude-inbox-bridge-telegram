@@ -20,13 +20,9 @@ export CLAUDE_INBOX="${CLAUDE_INBOX:-$HOME/.claude-inbox}"
 
 source "$ROOT_DIR/lib/task.sh"
 source "$ROOT_DIR/lib/observe.sh"
+source "$ROOT_DIR/lib/util.sh"
 
 OFFSET_FILE="$CLAUDE_INBOX/.bridge-telegram-offset"
-
-# uuid5 (deterministic: same input -> always the same UUID)
-generate_session_id() {
-    python3 -c "import uuid; print(uuid.uuid5(uuid.NAMESPACE_URL, '$1'))"
-}
 
 SKIP_PENDING=false
 for arg in "$@"; do
@@ -81,7 +77,6 @@ while true; do
         offset=$((update_id + 1))
         echo "$offset" > "$OFFSET_FILE"
 
-        [ -z "$text" ] && continue
         [ -z "$chat_id" ] && continue
 
         if ! is_allowed "$chat_id"; then
@@ -89,7 +84,30 @@ while true; do
             continue
         fi
 
+        # Detect file attachments (photo, document, audio, voice, video)
+        caption=$(echo "$update" | jq -r '.message.caption // empty')
+        file_id="" file_name=""
+        for ftype in photo document audio voice video_note video; do
+            if [ "$ftype" = "photo" ]; then
+                file_id=$(echo "$update" | jq -r '.message.photo[-1].file_id // empty')
+                [ -n "$file_id" ] && file_name="photo_${chat_id}_${msg_id}.jpg"
+            else
+                file_id=$(echo "$update" | jq -r ".message.${ftype}.file_id // empty")
+                if [ -n "$file_id" ]; then
+                    file_name=$(echo "$update" | jq -r ".message.${ftype}.file_name // empty")
+                    [ -z "$file_name" ] && file_name="${ftype}_${chat_id}_${msg_id}"
+                fi
+            fi
+            [ -n "$file_id" ] && break
+        done
+
+        # Skip if neither text nor file
+        [ -z "$text" ] && [ -z "$file_id" ] && continue
+
         session_id=$(generate_session_id "telegram:${chat_id}")
+
+        # Use caption as text for file messages
+        [ -z "$text" ] && text="$caption"
 
         # Model prefix: /haiku, /sonnet, /opus at start of message
         model=""
@@ -99,11 +117,27 @@ while true; do
             /opus\ *|/opus)    model="opus";   text="${text#/opus}"  ; text="${text# }" ;;
         esac
 
-        prompt="[from=$user_name channel=telegram chat_id=$chat_id msg_id=$msg_id session_id=$session_id${model:+ model=$model}]
+        # Download file if present
+        files_meta=""
+        if [ -n "$file_id" ]; then
+            tg_resp=$(curl -sf "https://api.telegram.org/bot${token}/getFile?file_id=${file_id}") || true
+            tg_path=$(echo "$tg_resp" | jq -r '.result.file_path // empty')
+            if [ -n "$tg_path" ]; then
+                mkdir -p "$CLAUDE_INBOX/tmp"
+                local_path="$CLAUDE_INBOX/tmp/$file_name"
+                if curl -sf "https://api.telegram.org/file/bot${token}/${tg_path}" -o "$local_path"; then
+                    files_meta=" files=$local_path"
+                else
+                    echo "[bridge-telegram] file download failed: $file_name" >&2
+                fi
+            fi
+        fi
+
+        prompt="[from=$user_name channel=telegram chat_id=$chat_id msg_id=$msg_id session_id=$session_id${model:+ model=$model}${files_meta}]
 
 $text"
 
         task_submit --prompt "$prompt"
-        echo "[bridge-telegram] queued: $text (session=$session_id${model:+, model=$model})" >&2
+        echo "[bridge-telegram] queued: ${text:-$file_name} (session=$session_id${model:+, model=$model})" >&2
     done
 done
