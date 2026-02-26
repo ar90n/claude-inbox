@@ -20,7 +20,7 @@ jobs:
       - name: Run tests
         run: |
           git clone --depth 1 https://github.com/bats-core/bats-core.git /tmp/bats
-          /tmp/bats/install.sh /usr/local
+          sudo /tmp/bats/install.sh /usr/local
           bats test/*.bats
 
       - name: Log in to GHCR
