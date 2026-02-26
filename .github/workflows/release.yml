@@ -32,7 +32,6 @@ jobs:
         id: version
         run: |
           date_part=$(date +%Y%m%d)
-          # Get current major from latest tag (default 0)
           latest=$(git tag --sort=-v:refname | head -1)
           if [ -n "$latest" ]; then
             current_major=$(echo "$latest" | sed 's/^v//' | cut -d. -f1)
@@ -76,10 +75,9 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          generate_release_notes: true
-          files: |
-            docker-compose.yml
-            .env.example
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --generate-notes \
+            docker-compose.yml .env.example
