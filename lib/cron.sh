@@ -11,6 +11,7 @@ CRON_STATE_DIR="$SCHEDULE_DIR/state/cron"
 # --- Parse a .job file into shell variables ---
 # Sets: job_name, job_schedule, job_prompt, job_channel,
 #       job_chat_id, job_priority, job_model
+# shellcheck disable=SC2034
 parse_job() {
     local job_file="$1"
     job_name="" job_schedule="" job_prompt="" job_channel=""

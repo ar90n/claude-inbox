@@ -89,7 +89,7 @@ WATCH_FILE="$WATCH_DIR/${NAME}.watch"
     if [ -n "$HEADERS" ]; then
         IFS=';' read -ra h_arr <<< "$HEADERS"
         for h in "${h_arr[@]}"; do
-            h=$(echo "$h" | sed 's/^[[:space:]]*//')
+            h="${h#"${h%%[![:space:]]*}"}"
             [ -n "$h" ] && echo "headers=$h"
         done
     fi

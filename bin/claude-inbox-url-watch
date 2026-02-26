@@ -83,7 +83,7 @@ fetch_content() {
         local h
         IFS=';' read -ra header_arr <<< "$headers"
         for h in "${header_arr[@]}"; do
-            h=$(echo "$h" | sed 's/^[[:space:]]*//')
+            h="${h#"${h%%[![:space:]]*}"}"
             [ -n "$h" ] && curl_args+=(-H "$h")
         done
     fi

@@ -54,110 +54,103 @@ load test_helper/common
 
 # --- task_claim ---
 
-@test "task_claim moves oldest task from new/ to cur/{wid}/" {
-    task_submit --prompt "first" --priority 1 >/dev/null
+@test "task_claim moves oldest task dir from tasks/ to cur/{wid}/" {
+    create_task_dir "first" 1 >/dev/null
     sleep 1
-    task_submit --prompt "second" --priority 5 >/dev/null
+    create_task_dir "second" 5 >/dev/null
 
     run task_claim "test-worker"
     [ "$status" -eq 0 ]
-    [ -f "$output" ]
+    [ -d "$output" ]
     [[ "$output" == */cur/test-worker/* ]]
-    [ "$(cat "$output")" = "first" ]
+    [ "$(cat "$output/prompt.txt")" = "first" ]
 }
 
-@test "task_claim returns 1 when new/ is empty" {
+@test "task_claim returns 1 when tasks/ is empty" {
     run task_claim "test-worker"
     [ "$status" -eq 1 ]
 }
 
-@test "task_claim returns file path on success" {
-    task_submit --prompt "test" >/dev/null
+@test "task_claim returns directory path on success" {
+    create_task_dir "test" >/dev/null
     run task_claim "test-worker"
     [ "$status" -eq 0 ]
     [ -n "$output" ]
-    [ -f "$output" ]
+    [ -d "$output" ]
 }
 
 # --- task_complete ---
 
-@test "task_complete moves task to done/ and creates .result" {
-    local path
-    path=$(task_submit --prompt "do this")
+@test "task_complete moves task dir to done/ and creates result" {
+    create_task_dir "do this" >/dev/null
     local claimed
     claimed=$(task_claim "test-worker")
 
     task_complete "$claimed" "done result"
 
-    local bname
-    bname=$(basename "$claimed")
-    local id="${bname%.task}"
+    local job_id
+    job_id=$(basename "$claimed")
 
-    [ -f "$CLAUDE_INBOX/done/$bname" ]
-    [ -f "$CLAUDE_INBOX/done/$id.result" ]
-    [ ! -f "$claimed" ]
+    [ -d "$CLAUDE_INBOX/done/$job_id" ]
+    [ -f "$CLAUDE_INBOX/done/$job_id/result" ]
+    [ ! -d "$claimed" ]
 }
 
 @test "task_complete result content matches input" {
-    local path
-    path=$(task_submit --prompt "do this")
+    create_task_dir "do this" >/dev/null
     local claimed
     claimed=$(task_claim "test-worker")
 
     task_complete "$claimed" "my result text"
 
-    local bname
-    bname=$(basename "$claimed")
-    local id="${bname%.task}"
+    local job_id
+    job_id=$(basename "$claimed")
 
-    [ "$(cat "$CLAUDE_INBOX/done/$id.result")" = "my result text" ]
+    [ "$(cat "$CLAUDE_INBOX/done/$job_id/result")" = "my result text" ]
 }
 
-@test "task_complete fails on missing task file" {
-    run task_complete "/nonexistent/file.task" "result"
+@test "task_complete fails on missing task dir" {
+    run task_complete "/nonexistent/dir" "result"
     [ "$status" -eq 2 ]
 }
 
 # --- task_fail ---
 
-@test "task_fail moves task to failed/ and creates .result" {
-    local path
-    path=$(task_submit --prompt "will fail")
+@test "task_fail moves task dir to failed/ and creates result" {
+    create_task_dir "will fail" >/dev/null
     local claimed
     claimed=$(task_claim "test-worker")
 
     task_fail "$claimed" "error message"
 
-    local bname
-    bname=$(basename "$claimed")
-    local id="${bname%.task}"
+    local job_id
+    job_id=$(basename "$claimed")
 
-    [ -f "$CLAUDE_INBOX/failed/$bname" ]
-    [ -f "$CLAUDE_INBOX/failed/$id.result" ]
-    [ ! -f "$claimed" ]
-    [ "$(cat "$CLAUDE_INBOX/failed/$id.result")" = "error message" ]
+    [ -d "$CLAUDE_INBOX/failed/$job_id" ]
+    [ -f "$CLAUDE_INBOX/failed/$job_id/result" ]
+    [ ! -d "$claimed" ]
+    [ "$(cat "$CLAUDE_INBOX/failed/$job_id/result")" = "error message" ]
 }
 
-@test "task_fail fails on missing task file" {
-    run task_fail "/nonexistent/file.task" "error"
+@test "task_fail fails on missing task dir" {
+    run task_fail "/nonexistent/dir" "error"
     [ "$status" -eq 2 ]
 }
 
 # --- task_recover ---
 
-@test "task_recover moves orphaned tasks from cur/{wid}/ back to new/" {
-    local path
-    path=$(task_submit --prompt "orphan")
+@test "task_recover moves orphaned task dirs from cur/{wid}/ back to tasks/" {
+    create_task_dir "orphan" >/dev/null
     local claimed
     claimed=$(task_claim "dead-worker")
 
-    local bname
-    bname=$(basename "$claimed")
+    local job_id
+    job_id=$(basename "$claimed")
 
     task_recover "dead-worker"
 
-    [ -f "$CLAUDE_INBOX/new/$bname" ]
-    [ ! -f "$claimed" ]
+    [ -d "$CLAUDE_INBOX/tasks/$job_id" ]
+    [ ! -d "$claimed" ]
     [ ! -d "$CLAUDE_INBOX/cur/dead-worker" ]
 }
 
