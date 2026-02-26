@@ -2,10 +2,12 @@ FROM node:22-slim
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+# hadolint ignore=DL3008
 RUN apt-get update && apt-get install -y --no-install-recommends \
         bash curl jq python3 python3-pip inotify-tools ca-certificates xauth unzip \
     && rm -rf /var/lib/apt/lists/*
 
+# hadolint ignore=DL3008
 RUN curl -fsSL https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
         -o /tmp/google-chrome.deb \
     && apt-get update \
