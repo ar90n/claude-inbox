@@ -18,16 +18,10 @@ Telegram → bridge → inbox (task queue) → worker (claude -p) → reply on T
 
 ## Setup
 
-### 1. Get the release
+### 1. Clone
 
 ```bash
-gh release download latest -p 'docker-compose.yml' -p '.env.example'
-```
-
-Or clone:
-
-```bash
-git clone https://github.com/user/claude-inbox.git && cd claude-inbox
+git clone https://github.com/ar90n/claude-inbox.git && cd claude-inbox
 ```
 
 ### 2. Configure
@@ -42,6 +36,8 @@ Edit `.env`:
 
 | Variable | Required | Description |
 |---|---|---|
+| `DOCKER_UID` | Yes | `$(id -u)` — baked into Docker image at build time |
+| `DOCKER_GID` | Yes | `$(id -g)` — baked into Docker image at build time |
 | `TELEGRAM_BOT_TOKEN` | Yes | From BotFather |
 | `TELEGRAM_ALLOWED_CHAT_IDS` | Yes | Allowed chat IDs (comma-separated). Check with @userinfobot |
 | `CLAUDE_MODEL` | No | Default model (`sonnet`, `opus`, `haiku`) |
@@ -140,7 +136,7 @@ ls ~/.claude-inbox/done/     # completed
 ls ~/.claude-inbox/failed/   # failed
 
 # Update
-docker compose pull && docker compose up -d
+git pull && docker compose build && docker compose up -d
 ```
 
 ## License

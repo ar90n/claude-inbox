@@ -19,8 +19,13 @@ RUN curl -fsSL https://dl.google.com/linux/direct/google-chrome-stable_current_a
 RUN npm install -g @anthropic-ai/claude-code claude-mem @playwright/mcp \
     && npm cache clean --force
 
-# Install Bun (required by claude-mem worker service)
-RUN curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash
+# Install Bun baseline build (AVX not required — works on Celeron/older CPUs)
+RUN curl -fsSL https://github.com/oven-sh/bun/releases/latest/download/bun-linux-x64-baseline.zip \
+        -o /tmp/bun.zip \
+    && unzip -o /tmp/bun.zip -d /tmp/bun \
+    && mv /tmp/bun/bun-linux-x64-baseline/bun /usr/local/bin/bun \
+    && chmod +x /usr/local/bin/bun \
+    && rm -rf /tmp/bun /tmp/bun.zip
 
 # Use system Google Chrome for Playwright (avoids downloading a second browser)
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
@@ -29,15 +34,25 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
 RUN pip3 install --no-cache-dir --break-system-packages \
         notebooklm-mcp-cli
 
-# Pre-create home dir and Chrome-required subdirs with open permissions
-# so any UID (via docker-compose user:) can write to them
-RUN mkdir -p /home/claude-inbox/.cache /home/claude-inbox/.config \
-             /home/claude-inbox/.pki/nssdb \
-    && chmod -R 777 /home/claude-inbox
+# Create user with host UID/GID (build with: docker compose build --build-arg UID=$(id -u) GID=$(id -g))
+ARG UID
+ARG GID
+# hadolint ignore=DL3046
+RUN groupadd -g "$GID" claude-inbox 2>/dev/null || true \
+    && useradd -l -u "$UID" -g "$GID" -d /home/claude-inbox -s /bin/bash -m claude-inbox 2>/dev/null || true \
+    && mkdir -p /home/claude-inbox/.cache /home/claude-inbox/.config \
+               /home/claude-inbox/.pki/nssdb \
+               /home/claude-inbox/.claude/debug \
+               /home/claude-inbox/.claude/projects \
+               /home/claude-inbox/.claude-mem \
+               /workdir \
+    && chown -R "$UID:$GID" /home/claude-inbox /workdir
 
 WORKDIR /app
 COPY bin/ bin/
 COPY lib/ lib/
 COPY skills/ skills/
 COPY prompts/ prompts/
+
+USER claude-inbox
 

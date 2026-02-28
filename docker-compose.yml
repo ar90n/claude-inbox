@@ -1,8 +1,11 @@
 services:
   claude-mem:
-    build: .
-    command: ["bun", "/usr/local/lib/node_modules/claude-mem/plugin/scripts/worker-service.cjs", "start"]
-    user: "${DOCKER_UID}:${DOCKER_GID}"
+    build:
+      context: .
+      args:
+        UID: ${DOCKER_UID}
+        GID: ${DOCKER_GID}
+    command: ["bun", "/usr/local/lib/node_modules/claude-mem/plugin/scripts/worker-service.cjs", "--daemon"]
     env_file: .env
     environment:
       HOME: /home/claude-inbox
@@ -12,10 +15,13 @@ services:
     restart: unless-stopped
 
   worker:
-    build: .
+    build:
+      context: .
+      args:
+        UID: ${DOCKER_UID}
+        GID: ${DOCKER_GID}
     command: ["bin/claude-inbox-worker"]
     privileged: true  # required for Chrome (sandbox + perf_event_paranoid)
-    user: "${DOCKER_UID}:${DOCKER_GID}"
     env_file: .env
     environment:
       CLAUDE_INBOX: /data/inbox
@@ -46,9 +52,12 @@ services:
       replicas: ${WORKERS:-1}
 
   preprocessor:
-    build: .
+    build:
+      context: .
+      args:
+        UID: ${DOCKER_UID}
+        GID: ${DOCKER_GID}
     command: ["bin/claude-inbox-preprocessor"]
-    user: "${DOCKER_UID}:${DOCKER_GID}"
     env_file: .env
     environment:
       CLAUDE_INBOX: /data/inbox
@@ -58,9 +67,12 @@ services:
     restart: unless-stopped
 
   bridge-telegram:
-    build: .
+    build:
+      context: .
+      args:
+        UID: ${DOCKER_UID}
+        GID: ${DOCKER_GID}
     command: ["bin/claude-inbox-bridge-telegram", "--skip-pending"]
-    user: "${DOCKER_UID}:${DOCKER_GID}"
     env_file: .env
     environment:
       CLAUDE_INBOX: /data/inbox
@@ -70,9 +82,12 @@ services:
     restart: unless-stopped
 
   cron:
-    build: .
+    build:
+      context: .
+      args:
+        UID: ${DOCKER_UID}
+        GID: ${DOCKER_GID}
     command: ["bin/claude-inbox-cron"]
-    user: "${DOCKER_UID}:${DOCKER_GID}"
     env_file: .env
     environment:
       CLAUDE_INBOX: /data/inbox
@@ -82,9 +97,12 @@ services:
     restart: unless-stopped
 
   url-watch:
-    build: .
+    build:
+      context: .
+      args:
+        UID: ${DOCKER_UID}
+        GID: ${DOCKER_GID}
     command: ["bin/claude-inbox-url-watch"]
-    user: "${DOCKER_UID}:${DOCKER_GID}"
     env_file: .env
     environment:
       CLAUDE_INBOX: /data/inbox

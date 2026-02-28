@@ -10,11 +10,6 @@ on:
 
 permissions:
   contents: write
-  packages: write
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   ci:
@@ -43,41 +38,23 @@ jobs:
           else
             major=$current_major
           fi
-          echo "tag=v${major}.${date_part}" >> "$GITHUB_OUTPUT"
+          # Append .N suffix if tag already exists (same-day re-release)
+          base="v${major}.${date_part}"
+          tag="$base"
+          n=1
+          while git rev-parse "$tag" >/dev/null 2>&1; do
+            tag="${base}.${n}"
+            n=$((n + 1))
+          done
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Create and push tag
         run: |
           git tag "${{ steps.version.outputs.tag }}"
           git push origin "${{ steps.version.outputs.tag }}"
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=${{ steps.version.outputs.tag }}
-            type=raw,value=latest
-
-      - name: Build and push
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ steps.version.outputs.tag }}" \
-            --generate-notes \
-            docker-compose.yml .env.example
+          gh release create "${{ steps.version.outputs.tag }}" --generate-notes
