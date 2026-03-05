@@ -41,8 +41,11 @@ Edit `.env`:
 | `TELEGRAM_BOT_TOKEN` | Yes | From BotFather |
 | `TELEGRAM_ALLOWED_CHAT_IDS` | Yes | Allowed chat IDs (comma-separated). Check with @userinfobot |
 | `CLAUDE_MODEL` | No | Default model (`sonnet`, `opus`, `haiku`) |
+| `CLAUDE_TIMEOUT` | No | Task timeout in seconds (default: 600) |
 | `WORKERS` | No | Parallel workers (default: 1) |
 | `GITHUB_TOKEN` | No | Higher rate limit for web-collect |
+| `KASM_VNC_PW` | No | Chrome VNC password (default: `password`) |
+| `KASM_PORT` | No | Chrome VNC port (default: 6901) |
 
 ### 3. Pull and authenticate
 
@@ -92,7 +95,8 @@ Workers automatically pick the right skill for each task:
 | Skill | What it does |
 |---|---|
 | web-collect | Collect news from HN, GitHub Trending, Reddit, Lobsters, dev.to, etc. |
-| browser-use | Browser automation (form filling, scraping, etc.) |
+| browser-use | Browser automation via kasmweb Chrome (VNC at `https://localhost:6901`) |
+| switchbot | SwitchBot device control via REST API |
 | notebooklm | Generate podcast audio from collected content |
 | create-task | Queue follow-up tasks |
 | schedule-task | Recurring tasks ("collect news every morning at 8am") |
