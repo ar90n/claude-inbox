@@ -7,7 +7,7 @@
 # Same input always produces the same UUID. Used by bridge, cron, url-watch.
 # Usage: generate_session_id "telegram:12345"
 generate_session_id() {
-    python3 -c "import uuid; print(uuid.uuid5(uuid.NAMESPACE_URL, '$1'))"
+    python3 -c "import uuid,sys; print(uuid.uuid5(uuid.NAMESPACE_URL, sys.argv[1]))" "$1"
 }
 
 # --- Wait for filesystem events in a directory ---

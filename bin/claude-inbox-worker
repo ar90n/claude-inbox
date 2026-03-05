@@ -19,9 +19,6 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 mkdir -p "$HOME/.claude/debug" "$HOME/.claude/projects"
 [ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
 
-# Chrome requires perf_event_paranoid <= 2 to start; lower it only if needed
-{ val=$(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null) && [ "$val" -gt 2 ] && echo 2 > /proc/sys/kernel/perf_event_paranoid; } 2>/dev/null || true
-
 export CLAUDE_INBOX="${CLAUDE_INBOX:-$HOME/.claude-inbox}"
 WORKER_ID="w.$$"
 WORKDIR="${CLAUDE_INBOX_WORKDIR:-}"
@@ -38,8 +35,8 @@ fi
 mkdir -p "$CLAUDE_INBOX"/{tmp,new,tasks,done,failed,state} "$CLAUDE_INBOX/cur/$WORKER_ID"
 
 source "$ROOT_DIR/lib/task.sh"
-source "$ROOT_DIR/lib/observe.sh"
 source "$ROOT_DIR/lib/notify.sh"
+source "$ROOT_DIR/lib/observe.sh"
 source "$ROOT_DIR/lib/util.sh"
 
 log() { printf '[%s] [%s] %s\n' "$(date -Is)" "$WORKER_ID" "$*" >&2; }
@@ -84,9 +81,9 @@ run_claude() {
     [ -n "$effective_model" ] && common_args+=(--model "$effective_model")
     [ -n "$system_prompt" ] && common_args+=(--system-prompt "$system_prompt")
     [ -d "$SKILLS_DIR" ] && common_args+=(--add-dir "$SKILLS_DIR")
-    [ "${CLAUDE_CHROME:-}" = "1" ] && common_args+=(--chrome)
 
-    local run_cmd="claude"
+    local claude_timeout="${CLAUDE_TIMEOUT:-600}"
+    local run_cmd="timeout $claude_timeout claude"
     local result="" rc=0
 
     _run() {
@@ -183,6 +180,10 @@ while true; do
     if [ $rc -eq 0 ]; then
         task_complete "$task_dir" "$result"
         log "DONE  $job_id (${dt}s, session=${session_id:-none}, model=${task_model:-${CLAUDE_MODEL:-default}})"
+    elif [ $rc -eq 124 ]; then
+        task_fail "$task_dir" "timeout after ${claude_timeout}s"
+        log "TIMEOUT $job_id (${claude_timeout}s limit)"
+        observe "task $job_id timed out after ${claude_timeout}s"
     else
         task_fail "$task_dir" "$result"
         log "FAIL  $job_id (exit=$rc, ${dt}s)"

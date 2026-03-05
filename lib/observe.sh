@@ -10,6 +10,8 @@
 #
 # Agent replies:      handled by skills/notify-telegram/ (agent decides)
 # System monitoring:  handled by this lib/observe.sh (bash runs deterministically)
+#
+# Requires lib/notify.sh to be sourced first (provides _send_telegram).
 
 observe() {
     local message="$1"
@@ -22,12 +24,5 @@ observe() {
         return 0
     fi
 
-    # Send deterministically; never kill the process on failure
-    curl -sf -X POST "https://api.telegram.org/bot${token}/sendMessage" \
-        -H "Content-Type: application/json" \
-        -d "$(jq -n \
-            --arg chat "$chat_id" \
-            --arg text "[claude-inbox] $message" \
-            '{chat_id: $chat, text: $text}')" \
-        >/dev/null 2>&1 || true
+    _send_telegram "$token" "$chat_id" "[claude-inbox] $message"
 }

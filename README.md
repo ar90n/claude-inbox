@@ -36,18 +36,18 @@ Edit `.env`:
 
 | Variable | Required | Description |
 |---|---|---|
-| `DOCKER_UID` | Yes | `$(id -u)` — baked into Docker image at build time |
-| `DOCKER_GID` | Yes | `$(id -g)` — baked into Docker image at build time |
+| `DOCKER_UID` | Yes | `$(id -u)` — runtime user mapping for file permissions |
+| `DOCKER_GID` | Yes | `$(id -g)` — runtime group mapping |
 | `TELEGRAM_BOT_TOKEN` | Yes | From BotFather |
 | `TELEGRAM_ALLOWED_CHAT_IDS` | Yes | Allowed chat IDs (comma-separated). Check with @userinfobot |
 | `CLAUDE_MODEL` | No | Default model (`sonnet`, `opus`, `haiku`) |
 | `WORKERS` | No | Parallel workers (default: 1) |
 | `GITHUB_TOKEN` | No | Higher rate limit for web-collect |
 
-### 3. Build and authenticate
+### 3. Pull and authenticate
 
 ```bash
-docker compose build
+docker compose pull
 docker compose run --rm worker bin/claude-inbox-setup login
 docker compose run --rm worker bin/claude-inbox-setup status
 ```
@@ -111,7 +111,9 @@ docker compose run --rm worker bin/claude-inbox-setup claude-mem
 ### NotebookLM (podcast generation)
 
 ```bash
-docker compose run --rm worker bin/claude-inbox-setup nlm-login
+docker compose up -d chrome
+docker compose exec worker bin/claude-inbox-setup nlm-login
+# Open https://localhost:6901 and complete Google login
 ```
 
 Cookie-based auth. Re-authenticate every 2-4 weeks.
@@ -136,7 +138,7 @@ ls ~/.claude-inbox/done/     # completed
 ls ~/.claude-inbox/failed/   # failed
 
 # Update
-git pull && docker compose build && docker compose up -d
+docker compose pull && docker compose up -d
 ```
 
 ## License

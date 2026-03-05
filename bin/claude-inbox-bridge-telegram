@@ -19,10 +19,20 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 export CLAUDE_INBOX="${CLAUDE_INBOX:-$HOME/.claude-inbox}"
 
 source "$ROOT_DIR/lib/task.sh"
+source "$ROOT_DIR/lib/notify.sh"
 source "$ROOT_DIR/lib/observe.sh"
 source "$ROOT_DIR/lib/util.sh"
 
 OFFSET_FILE="$CLAUDE_INBOX/.bridge-telegram-offset"
+
+# Atomic offset update: write-to-tmp + mv to prevent corruption on SIGKILL
+update_offset() {
+    local val="$1"
+    local tmp
+    tmp=$(mktemp "$CLAUDE_INBOX/tmp/.offset.XXXXXX")
+    echo "$val" > "$tmp"
+    mv "$tmp" "$OFFSET_FILE"
+}
 
 SKIP_PENDING=false
 for arg in "$@"; do
@@ -54,7 +64,7 @@ if [ "$SKIP_PENDING" = true ]; then
         | jq -r '.result[-1].update_id // empty')
     if [ -n "$latest" ]; then
         offset=$((latest + 1))
-        echo "$offset" > "$OFFSET_FILE"
+        update_offset "$offset"
         echo "[bridge-telegram] skip-pending: offset set to $offset" >&2
     fi
 fi
@@ -75,7 +85,7 @@ while true; do
         user_name=$(echo "$update" | jq -r '.message.from.first_name // "User"')
 
         offset=$((update_id + 1))
-        echo "$offset" > "$OFFSET_FILE"
+        update_offset "$offset"
 
         [ -z "$chat_id" ] && continue
 
@@ -133,7 +143,11 @@ while true; do
             fi
         fi
 
-        prompt="[from=$user_name channel=telegram chat_id=$chat_id msg_id=$msg_id session_id=$session_id${model:+ model=$model}${files_meta}]
+        # Sanitize user_name: strip brackets, pipes, newlines, and spaces to prevent metadata injection
+        # Spaces would split into separate k=v pairs in the metadata header
+        safe_name=$(printf '%s' "$user_name" | tr -d '[]|\n\r ' | tr -d '=' | cut -c1-64)
+
+        prompt="[from=$safe_name channel=telegram chat_id=$chat_id msg_id=$msg_id session_id=$session_id${model:+ model=$model}${files_meta}]
 
 $text"
 

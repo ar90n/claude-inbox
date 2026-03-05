@@ -1,10 +1,7 @@
 services:
   claude-mem:
-    build:
-      context: .
-      args:
-        UID: ${DOCKER_UID}
-        GID: ${DOCKER_GID}
+    image: ghcr.io/ar90n/claude-inbox:latest
+    build: .
     command: ["bun", "/usr/local/lib/node_modules/claude-mem/plugin/scripts/worker-service.cjs", "--daemon"]
     env_file: .env
     environment:
@@ -13,50 +10,73 @@ services:
     volumes:
       - claude_mem_data:/home/claude-inbox/.claude-mem
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:37777/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  chrome:
+    image: kasmweb/chrome:1.15.0
+    shm_size: '512m'
+    environment:
+      VNC_PW: ${KASM_VNC_PW:-password}
+      LAUNCH_URL: "about:blank"
+      APP_ARGS: "--remote-debugging-port=9223 --remote-allow-origins=* --no-first-run --no-default-browser-check"
+    ports:
+      - "${KASM_PORT:-6901}:6901"
+    volumes:
+      - chrome_profile:/home/kasm-user
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9223/json/version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  chrome-cdp:
+    image: alpine/socat
+    command: "TCP-LISTEN:9222,fork,reuseaddr TCP:127.0.0.1:9223"
+    network_mode: "service:chrome"
+    depends_on:
+      - chrome
+    restart: unless-stopped
 
   worker:
-    build:
-      context: .
-      args:
-        UID: ${DOCKER_UID}
-        GID: ${DOCKER_GID}
+    image: ghcr.io/ar90n/claude-inbox:latest
+    build: .
     command: ["bin/claude-inbox-worker"]
-    privileged: true  # required for Chrome (sandbox + perf_event_paranoid)
     env_file: .env
     environment:
       CLAUDE_INBOX: /data/inbox
       CLAUDE_INBOX_WORKDIR: /workdir  # always /workdir inside container
       HOME: /home/claude-inbox
       CLAUDE_MODEL: ${CLAUDE_MODEL:-}
+      CLAUDE_TIMEOUT: ${CLAUDE_TIMEOUT:-600}
       CLAUDE_MEM_WORKER_HOST: claude-mem
       CLAUDE_MEM_WORKER_PORT: "37777"
-      CLAUDE_CHROME: ${CLAUDE_CHROME:-}  # set to 1 to enable Claude in Chrome (requires Chrome extension + DISPLAY)
+      CHROME_CDP_URL: http://chrome:9222
       SWITCHBOT_TOKEN: ${SWITCHBOT_TOKEN:-}
       SWITCHBOT_SECRET: ${SWITCHBOT_SECRET:-}
-      DISPLAY: ${DISPLAY:-}  # required for Claude in Chrome and nlm-login
     volumes:
       - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
       - claude_dot:/home/claude-inbox/.claude
       - claude_workdir:/workdir
       # To bind-mount a host project instead: comment the line above, uncomment below
       # - ${CLAUDE_INBOX_WORKDIR}:/workdir
-      # Chrome profile mount for browser-use (optional — uncomment + set CHROME_PROFILE_DIR in .env)
-      # - ${CHROME_PROFILE_DIR}:/home/claude-inbox/.config/google-chrome:ro
-      # X11 forwarding for visible browser / nlm-login (optional — uncomment + set DISPLAY in environment below)
-      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - nlm_auth:/home/claude-inbox/.notebooklm-mcp-cli
     restart: unless-stopped
     depends_on:
       - claude-mem
       - preprocessor
+      - chrome
     deploy:
       replicas: ${WORKERS:-1}
 
   preprocessor:
-    build:
-      context: .
-      args:
-        UID: ${DOCKER_UID}
-        GID: ${DOCKER_GID}
+    image: ghcr.io/ar90n/claude-inbox:latest
+    build: .
     command: ["bin/claude-inbox-preprocessor"]
     env_file: .env
     environment:
@@ -67,11 +87,8 @@ services:
     restart: unless-stopped
 
   bridge-telegram:
-    build:
-      context: .
-      args:
-        UID: ${DOCKER_UID}
-        GID: ${DOCKER_GID}
+    image: ghcr.io/ar90n/claude-inbox:latest
+    build: .
     command: ["bin/claude-inbox-bridge-telegram", "--skip-pending"]
     env_file: .env
     environment:
@@ -82,11 +99,8 @@ services:
     restart: unless-stopped
 
   cron:
-    build:
-      context: .
-      args:
-        UID: ${DOCKER_UID}
-        GID: ${DOCKER_GID}
+    image: ghcr.io/ar90n/claude-inbox:latest
+    build: .
     command: ["bin/claude-inbox-cron"]
     env_file: .env
     environment:
@@ -97,11 +111,8 @@ services:
     restart: unless-stopped
 
   url-watch:
-    build:
-      context: .
-      args:
-        UID: ${DOCKER_UID}
-        GID: ${DOCKER_GID}
+    image: ghcr.io/ar90n/claude-inbox:latest
+    build: .
     command: ["bin/claude-inbox-url-watch"]
     env_file: .env
     environment:
@@ -115,3 +126,5 @@ volumes:
   claude_dot:      # ~/.claude/ — Claude Code auth & sessions
   claude_workdir:  # /workdir — Claude's working directory
   claude_mem_data: # ~/.claude-mem/ — claude-mem memory store
+  nlm_auth:        # ~/.notebooklm-mcp-cli/ — NotebookLM auth cookies
+  chrome_profile:  # Chrome profile — persistent logins for browser-use

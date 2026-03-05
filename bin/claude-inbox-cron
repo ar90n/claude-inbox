@@ -18,6 +18,7 @@ export CLAUDE_INBOX="${CLAUDE_INBOX:-$HOME/.claude-inbox}"
 
 source "$ROOT_DIR/lib/task.sh"
 source "$ROOT_DIR/lib/cron.sh"
+source "$ROOT_DIR/lib/notify.sh"
 source "$ROOT_DIR/lib/observe.sh"
 source "$ROOT_DIR/lib/util.sh"
 

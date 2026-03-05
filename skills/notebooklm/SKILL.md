@@ -15,14 +15,14 @@ Repository: https://github.com/jacob-bd/notebooklm-mcp-cli
 ## Prerequisites
 
 - `nlm` installed: `pip install notebooklm-mcp-cli`
-- Authenticated: run `nlm login` with X11 forwarding (Cookie-based, lasts 2-4 weeks)
-  - Config stored in `~/.config/nlm/` — persists via bind-mount or host install
+- Authenticated: run `bin/claude-inbox-setup nlm-login`
+  - Connects to kasmweb Chrome via CDP — complete Google login at https://localhost:6901
+  - Config stored in `~/.notebooklm-mcp-cli/` (persisted via `nlm_auth` Docker volume)
+  - Cookie-based, lasts 2-4 weeks
 
 ```bash
-# From inside the worker container (X11 forwarding required):
-docker exec -it -e DISPLAY=$DISPLAY \
-  -v /tmp/.X11-unix:/tmp/.X11-unix \
-  claude-inbox-worker-1 nlm login
+# Authenticate (chrome service must be running):
+docker compose exec worker bin/claude-inbox-setup nlm-login
 ```
 
 ## Workflow

@@ -17,29 +17,23 @@ Usage: $(basename "$0") <command>
 
 Commands:
   login        Authenticate Claude Code (run once after first start)
-               docker exec -it claude-inbox-worker-1 \\
-                 bin/claude-inbox-setup login
+               docker compose exec worker bin/claude-inbox-setup login
 
-  nlm-login    Authenticate NotebookLM via browser (requires DISPLAY)
-               docker exec -it -e DISPLAY=\$DISPLAY \\
-                 -v /tmp/.X11-unix:/tmp/.X11-unix \\
-                 claude-inbox-worker-1 bin/claude-inbox-setup nlm-login
+  nlm-login    Authenticate NotebookLM via kasmweb Chrome
+               docker compose exec worker bin/claude-inbox-setup nlm-login
+               Then open https://localhost:6901 and complete Google login
 
   claude-mem   Add claude-mem MCP server to ~/.claude/settings.json
-               docker exec -it claude-inbox-worker-1 \\
-                 bin/claude-inbox-setup claude-mem
+               docker compose exec worker bin/claude-inbox-setup claude-mem
 
-  playwright   Add Playwright MCP server for browser automation
-               docker exec claude-inbox-worker-1 \\
-                 bin/claude-inbox-setup playwright
+  playwright   Add Playwright MCP server (remote Chrome via CDP)
+               docker compose exec worker bin/claude-inbox-setup playwright
 
   install-skills  Install agent CLAUDE.md (skills) to ~/.claude/
-               docker exec claude-inbox-worker-1 \\
-                 bin/claude-inbox-setup install-skills
+               docker compose exec worker bin/claude-inbox-setup install-skills
 
   status       Show setup status
-               docker exec claude-inbox-worker-1 \\
-                 bin/claude-inbox-setup status
+               docker compose exec worker bin/claude-inbox-setup status
 EOF
     exit 1
 }
@@ -57,37 +51,35 @@ cmd_login() {
 
 # --- nlm-login ---
 cmd_nlm_login() {
-    if [ -z "${DISPLAY:-}" ]; then
-        echo "ERROR: DISPLAY not set." >&2
-        echo "Run with: docker exec -it -e DISPLAY=\$DISPLAY <worker> bin/claude-inbox-setup nlm-login" >&2
+    local cdp_url="${CHROME_CDP_URL:-http://chrome:9222}"
+
+    echo "Checking Chrome CDP at $cdp_url ..."
+    if ! curl -sf -H "Host: localhost" "$cdp_url/json/version" >/dev/null 2>&1; then
+        echo "ERROR: Cannot reach Chrome CDP at $cdp_url" >&2
+        echo "Start Chrome: docker compose up -d chrome" >&2
         exit 1
     fi
 
-    echo "Starting Chrome for NotebookLM authentication..."
-    google-chrome-stable \
-        --remote-debugging-port=9222 \
-        --no-sandbox \
-        --disable-dev-shm-usage \
-        --disable-gpu \
-        --no-first-run \
-        --no-default-browser-check \
-        >/tmp/chrome-setup.log 2>&1 &
-    local chrome_pid=$!
+    echo ""
+    echo "Open browser at https://localhost:${KASM_PORT:-6901} to interact with Chrome."
+    echo "VNC password: \${KASM_VNC_PW} (default: password)"
+    echo ""
 
-    echo "Chrome started (pid=$chrome_pid), waiting for CDP..."
-    sleep 3
-
-    if ! kill -0 "$chrome_pid" 2>/dev/null; then
-        echo "ERROR: Chrome failed to start. Log:" >&2
-        cat /tmp/chrome-setup.log >&2
-        exit 1
-    fi
+    # Chrome rejects HTTP requests with non-localhost Host headers.
+    # nlm's httpx client sends "Host: chrome:9222" which Chrome returns 500 for.
+    # Workaround: local socat relay so nlm connects to localhost → chrome:9222.
+    local cdp_host cdp_port local_port=19222
+    cdp_host=$(echo "$cdp_url" | sed -E 's|https?://||;s|/.*||;s|:.*||')
+    cdp_port=$(echo "$cdp_url" | sed -E 's|.*:([0-9]+).*|\1|')
+    socat "TCP-LISTEN:${local_port},fork,reuseaddr" "TCP:${cdp_host}:${cdp_port}" &
+    local socat_pid=$!
+    # shellcheck disable=SC2064
+    trap "kill $socat_pid 2>/dev/null" EXIT
+    sleep 0.5
 
     echo "Running nlm login..."
-    nlm login --cdp-url http://127.0.0.1:9222
-
-    kill "$chrome_pid" 2>/dev/null || true
-    echo "Done. Config saved to ~/.config/nlm/"
+    nlm login --provider openclaw --cdp-url "http://localhost:${local_port}"
+    echo "Done. Config saved to ~/.notebooklm-mcp-cli/"
 }
 
 # --- claude-mem ---
@@ -162,22 +154,14 @@ cmd_status() {
         echo "✗ Skills: not installed        →  run: claude-inbox-setup install-skills"
     fi
 
-    # Google Chrome
-    if command -v google-chrome-stable >/dev/null 2>&1; then
-        echo "✓ Chrome: $(google-chrome-stable --version 2>/dev/null)"
+    # Chrome (remote, kasmweb)
+    local cdp_url="${CHROME_CDP_URL:-http://chrome:9222}"
+    if curl -sf -H "Host: localhost" "$cdp_url/json/version" >/dev/null 2>&1; then
+        local chrome_ver
+        chrome_ver=$(curl -sf -H "Host: localhost" "$cdp_url/json/version" | jq -r '.Browser // "unknown"')
+        echo "✓ Chrome (remote): $chrome_ver at $cdp_url"
     else
-        echo "✗ Chrome: not found"
-    fi
-
-    # Claude in Chrome
-    if [ "${CLAUDE_CHROME:-}" = "1" ]; then
-        if [ -n "${DISPLAY:-}" ]; then
-            echo "✓ Claude in Chrome: enabled (CLAUDE_CHROME=1, DISPLAY=$DISPLAY)"
-        else
-            echo "⚠ Claude in Chrome: enabled but DISPLAY not set"
-        fi
-    else
-        echo "- Claude in Chrome: disabled  →  set CLAUDE_CHROME=1 + DISPLAY"
+        echo "✗ Chrome (remote): not reachable at $cdp_url"
     fi
 }
 
@@ -197,16 +181,17 @@ cmd_playwright() {
 
     local tmp
     tmp=$(mktemp)
-    jq '.mcpServers |= (. // {}) + {
+    local cdp_endpoint="${CHROME_CDP_URL:-http://chrome:9222}"
+    jq --arg cdp "$cdp_endpoint" '.mcpServers |= (. // {}) + {
         "playwright": {
             "command": "npx",
-            "args": ["@playwright/mcp@latest", "--headless", "--browser", "chrome"]
+            "args": ["@playwright/mcp@latest", "--cdp-endpoint", $cdp]
         }
     }' "$settings" > "$tmp"
     mv "$tmp" "$settings"
 
     echo "Added Playwright MCP server to $settings"
-    echo "Browser automation is now available (headless, using system Chrome)."
+    echo "Browser automation via remote Chrome (CDP: $cdp_endpoint)."
     echo "Restart the worker to pick up the new config."
 }
 

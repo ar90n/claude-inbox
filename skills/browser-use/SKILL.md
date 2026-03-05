@@ -4,35 +4,19 @@ description: >
   This skill should be used when the user asks to "browse a website",
   "fill out a form", "click a button", "automate browser actions",
   "log into a site", "scrape a page", or needs web browser automation.
-  Two backends: Claude in Chrome (preferred) and Playwright MCP (fallback).
+  Uses Playwright MCP connected to a remote Chrome instance via CDP.
 ---
 
 # Browser Automation
 
-Two browser backends are available. **Check your tool list to determine which to use.**
+Browser automation via Playwright MCP, connected to remote Chrome (kasmweb) via CDP.
 
-## Tool Detection
+## Setup
 
-1. If you have a `computer` tool (type=computer_20250124) → use **Claude in Chrome**
-2. If you have `browser_navigate`, `browser_click` etc. → use **Playwright MCP**
-3. If both are available → prefer **Claude in Chrome**
+No setup required — Playwright MCP is pre-installed in the container.
+Chrome runs as a separate `kasmweb/chrome` container, connected via CDP (`CHROME_CDP_URL`).
 
-## Claude in Chrome
-
-Claude's native browser control. You see the screen and interact naturally.
-
-- You have a `computer` tool — use it to take screenshots, click, type, scroll
-- Works like computer_use: coordinate-based interaction with visual feedback
-- Chrome profile and cookies are available (logged-in sessions persist)
-- Requires: `CLAUDE_CHROME=1` + `DISPLAY` (X11)
-
-## Playwright MCP
-
-Headless browser automation via MCP tools. No display needed.
-
-Setup: `bin/claude-inbox-setup playwright`
-
-### Tools
+## Tools
 
 | Category | Tools |
 |---|---|
@@ -41,7 +25,7 @@ Setup: `bin/claude-inbox-setup playwright`
 | Data | `browser_snapshot`, `browser_take_screenshot`, `browser_network_requests`, `browser_console_messages` |
 | Tabs | `browser_tab_new`, `browser_tab_select`, `browser_tab_close`, `browser_tab_list` |
 
-### Usage
+## Usage
 
 ```
 1. browser_navigate → "https://example.com"
@@ -50,25 +34,18 @@ Setup: `bin/claude-inbox-setup playwright`
 4. browser_type → fill in forms
 ```
 
-## Comparison
-
-| | Claude in Chrome | Playwright MCP |
-|---|---|---|
-| Tool to check | `computer` | `browser_navigate` |
-| Display | Required (X11) | Not needed (headless) |
-| Interaction | Visual (screenshots + coordinates) | Accessibility tree |
-| Cookies/login | Chrome profile persists | Fresh session each time |
-| Best for | Visual tasks, complex JS sites | Structured scraping, automation |
-
 ## Notes
 
+- Chrome runs in a separate `kasmweb/chrome:1.15.0` container, connected via `CHROME_CDP_URL` (default: `http://chrome:9222`)
+- Logged-in sessions persist across tasks (shared Chrome profile volume)
+- Chrome GUI is accessible at https://localhost:6901 for visual debugging (VNC)
 - For long-running browser tasks, break into steps using `create-task`
-- Some sites detect headless browsers — Claude in Chrome avoids this
 
 ## Error Handling
 
 | Error | Action |
 |---|---|
-| No browser tools | Run `bin/claude-inbox-setup playwright` or set `CLAUDE_CHROME=1` |
+| No browser tools | Playwright MCP is pre-installed; check `@playwright/mcp` in node modules |
+| CDP connection failed | Check that chrome service is running: `docker compose up -d chrome` |
 | Navigation timeout | `browser_wait` before next action |
 | Element not found | `browser_snapshot` to see available elements |
