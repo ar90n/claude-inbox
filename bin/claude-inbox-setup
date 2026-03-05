@@ -118,8 +118,8 @@ cmd_claude_mem() {
 cmd_status() {
     echo "=== claude-inbox setup status ==="
 
-    # Claude auth
-    if claude --version >/dev/null 2>&1 && [ -s "$HOME/.claude.json" ] && [ "$(cat "$HOME/.claude.json")" != "{}" ]; then
+    # Claude auth (credentials stored in ~/.claude/.credentials.json)
+    if [ -s "$HOME/.claude/.credentials.json" ]; then
         echo "✓ Claude: authenticated"
     else
         echo "✗ Claude: not authenticated      →  run: claude-inbox-setup login"
