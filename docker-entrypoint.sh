@@ -14,4 +14,12 @@ if [ "$CURRENT_UID" != "$TARGET_UID" ] || [ "$CURRENT_GID" != "$TARGET_GID" ]; t
     chown -R "$TARGET_UID:$TARGET_GID" /home/claude-inbox /workdir
 fi
 
+# Ensure bind-mounted inbox directories exist and are owned by the target user.
+# /data/inbox is a host bind-mount — the mount point may be owned by root.
+INBOX="${CLAUDE_INBOX:-/data/inbox}"
+if [ -d "$INBOX" ]; then
+    mkdir -p "$INBOX"/{tmp,new,tasks,done,failed,state,cur}
+    chown "$TARGET_UID:$TARGET_GID" "$INBOX" "$INBOX"/{tmp,new,tasks,done,failed,state,cur} 2>/dev/null || true
+fi
+
 exec gosu claude-inbox "$@"
