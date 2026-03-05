@@ -59,6 +59,8 @@ services:
       CHROME_CDP_URL: http://chrome:9222
       SWITCHBOT_TOKEN: ${SWITCHBOT_TOKEN:-}
       SWITCHBOT_SECRET: ${SWITCHBOT_SECRET:-}
+      GOOGLE_WORKSPACE_CLI_CLIENT_ID: ${GOOGLE_WORKSPACE_CLI_CLIENT_ID:-}
+      GOOGLE_WORKSPACE_CLI_CLIENT_SECRET: ${GOOGLE_WORKSPACE_CLI_CLIENT_SECRET:-}
     volumes:
       - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
       - claude_dot:/home/claude-inbox/.claude
@@ -66,6 +68,7 @@ services:
       # To bind-mount a host project instead: comment the line above, uncomment below
       # - ${CLAUDE_INBOX_WORKDIR}:/workdir
       - nlm_auth:/home/claude-inbox/.notebooklm-mcp-cli
+      - gws_config:/home/claude-inbox/.config/gws
     restart: unless-stopped
     depends_on:
       - claude-mem
@@ -127,4 +130,5 @@ volumes:
   claude_workdir:  # /workdir — Claude's working directory
   claude_mem_data: # ~/.claude-mem/ — claude-mem memory store
   nlm_auth:        # ~/.notebooklm-mcp-cli/ — NotebookLM auth cookies
+  gws_config:      # ~/.config/gws/ — Google Workspace CLI credentials
   chrome_profile:  # Chrome profile — persistent logins for browser-use

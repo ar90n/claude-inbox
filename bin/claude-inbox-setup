@@ -26,6 +26,10 @@ Commands:
   claude-mem   Add claude-mem MCP server to ~/.claude/settings.json
                docker compose exec worker bin/claude-inbox-setup claude-mem
 
+  gws-login    Authenticate Google Workspace CLI (Gmail, Calendar, Drive, etc.)
+               Requires GOOGLE_WORKSPACE_CLI_CLIENT_ID and _CLIENT_SECRET in .env
+               docker compose run --rm -it worker bin/claude-inbox-setup gws-login
+
   playwright   Add Playwright MCP server (remote Chrome via CDP)
                docker compose exec worker bin/claude-inbox-setup playwright
 
@@ -140,6 +144,17 @@ cmd_status() {
         echo "✗ claude-mem: not configured     →  run: claude-inbox-setup claude-mem"
     fi
 
+    # Google Workspace CLI
+    if command -v gws >/dev/null 2>&1; then
+        local gws_auth
+        gws_auth=$(gws auth status 2>/dev/null | jq -r '.auth_method // "none"')
+        if [ "$gws_auth" != "none" ] && [ -n "$gws_auth" ]; then
+            echo "✓ Google Workspace: authenticated ($gws_auth)"
+        else
+            echo "✗ Google Workspace: not configured →  run: claude-inbox-setup gws-login"
+        fi
+    fi
+
     # Playwright MCP
     if [ -f "$settings" ] && jq -e '.mcpServers["playwright"]' "$settings" >/dev/null 2>&1; then
         echo "✓ Playwright: configured"
@@ -163,6 +178,41 @@ cmd_status() {
     else
         echo "✗ Chrome (remote): not reachable at $cdp_url"
     fi
+}
+
+# --- gws-login ---
+cmd_gws_login() {
+    if ! command -v gws >/dev/null 2>&1; then
+        echo "ERROR: gws CLI not found. Install: npm install -g @googleworkspace/cli" >&2
+        exit 1
+    fi
+
+    # Check OAuth client credentials
+    local client_id="${GOOGLE_WORKSPACE_CLI_CLIENT_ID:-}"
+    local client_secret="${GOOGLE_WORKSPACE_CLI_CLIENT_SECRET:-}"
+    if [ -z "$client_id" ] || [ -z "$client_secret" ]; then
+        echo "ERROR: OAuth client credentials not set." >&2
+        echo "" >&2
+        echo "Set these in .env:" >&2
+        echo "  GOOGLE_WORKSPACE_CLI_CLIENT_ID=xxx.apps.googleusercontent.com" >&2
+        echo "  GOOGLE_WORKSPACE_CLI_CLIENT_SECRET=GOCSPX-xxx" >&2
+        echo "" >&2
+        echo "Create OAuth credentials at:" >&2
+        echo "  https://console.cloud.google.com/apis/credentials" >&2
+        echo "  (Desktop app type, enable Gmail/Calendar/Drive APIs)" >&2
+        exit 1
+    fi
+
+    echo "Google Workspace CLI login"
+    echo "=========================="
+    echo ""
+    echo "A browser URL will be displayed. Open it to authorize."
+    echo "Select the API scopes you need (Gmail, Calendar, Drive, etc.)."
+    echo ""
+    gws auth login
+    echo ""
+    echo "Done. Credentials saved to ~/.config/gws/"
+    echo "(Persisted in the gws_config Docker volume)"
 }
 
 # --- playwright ---
@@ -215,6 +265,7 @@ cmd_install_skills() {
 case "${1:-}" in
     login)          cmd_login ;;
     nlm-login)      cmd_nlm_login ;;
+    gws-login)      cmd_gws_login ;;
     claude-mem)     cmd_claude_mem ;;
     playwright)     cmd_playwright ;;
     install-skills) cmd_install_skills "${2:-}" ;;

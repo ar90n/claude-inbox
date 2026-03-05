@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # hadolint ignore=DL3016
-RUN npm install -g @anthropic-ai/claude-code claude-mem @playwright/mcp \
+RUN npm install -g @anthropic-ai/claude-code claude-mem @playwright/mcp @googleworkspace/cli \
     && npm cache clean --force
 
 # Install Bun baseline build (AVX not required — works on Celeron/older CPUs)
@@ -27,7 +27,7 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 # node:22-slim ships with a 'node' user at UID 1000; remove it first.
 RUN userdel -r node 2>/dev/null || true \
     && useradd -l -u 1000 -d /home/claude-inbox -s /bin/bash -m claude-inbox \
-    && mkdir -p /home/claude-inbox/.cache /home/claude-inbox/.config \
+    && mkdir -p /home/claude-inbox/.cache /home/claude-inbox/.config/gws \
                /home/claude-inbox/.notebooklm-mcp-cli \
                /home/claude-inbox/.claude/debug \
                /home/claude-inbox/.claude/projects \

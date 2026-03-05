@@ -96,6 +96,7 @@ Workers automatically pick the right skill for each task:
 |---|---|
 | web-collect | Collect news from HN, GitHub Trending, Reddit, Lobsters, dev.to, etc. |
 | browser-use | Browser automation via kasmweb Chrome (VNC at `https://localhost:6901`) |
+| google-workspace | Gmail, Calendar, Drive, Sheets, Docs via `gws` CLI |
 | switchbot | SwitchBot device control via REST API |
 | notebooklm | Generate podcast audio from collected content |
 | create-task | Queue follow-up tasks |
@@ -121,6 +122,14 @@ docker compose exec worker bin/claude-inbox-setup nlm-login
 ```
 
 Cookie-based auth. Re-authenticate every 2-4 weeks.
+
+### Google Workspace (Gmail, Calendar, Drive)
+
+```bash
+docker compose run --rm -it worker bin/claude-inbox-setup gws-login
+```
+
+Requires a Google Cloud project. The setup wizard will walk you through it.
 
 ### System monitoring
 
