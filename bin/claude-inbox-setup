@@ -224,10 +224,17 @@ _gws_login_cdp() {
     echo "VNC password: \${KASM_VNC_PW} (default: password)"
     echo ""
 
-    # Start gws auth login in background, capture stderr for the auth URL
-    local gws_log
+    # Start gws auth login in background, capture stderr via FIFO
+    local gws_log gws_fifo
     gws_log=$(mktemp)
-    gws auth login 2> >(tee "$gws_log" >&2) &
+    gws_fifo=$(mktemp -u)
+    mkfifo "$gws_fifo"
+
+    # tee: show stderr to user AND write to log file
+    tee "$gws_log" < "$gws_fifo" >&2 &
+    local tee_pid=$!
+
+    gws auth login 2>"$gws_fifo" &
     local gws_pid=$!
 
     # Wait for gws to print the auth URL (up to 15s)
@@ -241,7 +248,8 @@ _gws_login_cdp() {
         echo "ERROR: Could not extract auth URL from gws output." >&2
         echo "Falling back to manual mode." >&2
         wait "$gws_pid" 2>/dev/null
-        rm -f "$gws_log"
+        kill "$tee_pid" 2>/dev/null; wait "$tee_pid" 2>/dev/null
+        rm -f "$gws_log" "$gws_fifo"
         _gws_login_manual
         return
     fi
@@ -256,7 +264,8 @@ _gws_login_cdp() {
 
     # Wait for gws to finish (callback arrives via localhost)
     wait "$gws_pid" 2>/dev/null
-    rm -f "$gws_log"
+    kill "$tee_pid" 2>/dev/null; wait "$tee_pid" 2>/dev/null
+    rm -f "$gws_log" "$gws_fifo"
 }
 
 # Manual login fallback (no Chrome available)
