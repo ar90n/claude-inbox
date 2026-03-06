@@ -28,7 +28,7 @@ Commands:
 
   gws-login    Authenticate Google Workspace CLI (Gmail, Calendar, Drive, etc.)
                Requires GOOGLE_WORKSPACE_CLI_CLIENT_ID and _CLIENT_SECRET in .env
-               docker compose run --rm -it worker bin/claude-inbox-setup gws-login
+               docker compose exec -it worker bin/claude-inbox-setup gws-login
 
   playwright   Add Playwright MCP server (remote Chrome via CDP)
                docker compose exec worker bin/claude-inbox-setup playwright
@@ -55,10 +55,10 @@ cmd_login() {
 
 # --- nlm-login ---
 cmd_nlm_login() {
-    local cdp_url="${CHROME_CDP_URL:-http://chrome:9222}"
+    local cdp_url="${CHROME_CDP_URL:-http://localhost:9222}"
 
     echo "Checking Chrome CDP at $cdp_url ..."
-    if ! curl -sf -H "Host: localhost" "$cdp_url/json/version" >/dev/null 2>&1; then
+    if ! curl -sf "$cdp_url/json/version" >/dev/null 2>&1; then
         echo "ERROR: Cannot reach Chrome CDP at $cdp_url" >&2
         echo "Start Chrome: docker compose up -d chrome" >&2
         exit 1
@@ -69,20 +69,8 @@ cmd_nlm_login() {
     echo "VNC password: \${KASM_VNC_PW} (default: password)"
     echo ""
 
-    # Chrome rejects HTTP requests with non-localhost Host headers.
-    # nlm's httpx client sends "Host: chrome:9222" which Chrome returns 500 for.
-    # Workaround: local socat relay so nlm connects to localhost → chrome:9222.
-    local cdp_host cdp_port local_port=19222
-    cdp_host=$(echo "$cdp_url" | sed -E 's|https?://||;s|/.*||;s|:.*||')
-    cdp_port=$(echo "$cdp_url" | sed -E 's|.*:([0-9]+).*|\1|')
-    socat "TCP-LISTEN:${local_port},fork,reuseaddr" "TCP:${cdp_host}:${cdp_port}" &
-    local socat_pid=$!
-    # shellcheck disable=SC2064
-    trap "kill $socat_pid 2>/dev/null" EXIT
-    sleep 0.5
-
     echo "Running nlm login..."
-    nlm login --provider openclaw --cdp-url "http://localhost:${local_port}"
+    nlm login --provider openclaw --cdp-url "$cdp_url"
     echo "Done. Config saved to ~/.notebooklm-mcp-cli/"
 }
 
@@ -169,14 +157,14 @@ cmd_status() {
         echo "✗ Skills: not installed        →  run: claude-inbox-setup install-skills"
     fi
 
-    # Chrome (remote, kasmweb)
-    local cdp_url="${CHROME_CDP_URL:-http://chrome:9222}"
-    if curl -sf -H "Host: localhost" "$cdp_url/json/version" >/dev/null 2>&1; then
+    # Chrome (sidecar, shares localhost with worker)
+    local cdp_url="${CHROME_CDP_URL:-http://localhost:9222}"
+    if curl -sf "$cdp_url/json/version" >/dev/null 2>&1; then
         local chrome_ver
-        chrome_ver=$(curl -sf -H "Host: localhost" "$cdp_url/json/version" | jq -r '.Browser // "unknown"')
-        echo "✓ Chrome (remote): $chrome_ver at $cdp_url"
+        chrome_ver=$(curl -sf "$cdp_url/json/version" | jq -r '.Browser // "unknown"')
+        echo "✓ Chrome (sidecar): $chrome_ver at $cdp_url"
     else
-        echo "✗ Chrome (remote): not reachable at $cdp_url"
+        echo "✗ Chrome (sidecar): not reachable at $cdp_url"
     fi
 }
 
@@ -203,16 +191,86 @@ cmd_gws_login() {
         exit 1
     fi
 
+    local cdp_url="${CHROME_CDP_URL:-http://localhost:9222}"
+    local use_cdp=false
+
+    # Check if Chrome CDP is available
+    if curl -sf "$cdp_url/json/version" >/dev/null 2>&1; then
+        use_cdp=true
+    fi
+
     echo "Google Workspace CLI login"
     echo "=========================="
+
+    if [ "$use_cdp" = true ]; then
+        _gws_login_cdp "$cdp_url"
+    else
+        _gws_login_manual
+    fi
+
+    echo ""
+    echo "Done. Credentials saved to ~/.config/gws/"
+    echo "(Persisted in the gws_config Docker volume)"
+}
+
+# CDP-assisted login: open auth URL in Chrome, user completes login via VNC
+# Chrome shares localhost with worker (sidecar), so OAuth callback reaches gws directly
+_gws_login_cdp() {
+    local cdp_url="$1"
+
+    echo ""
+    echo "Chrome detected at $cdp_url (sidecar, sharing localhost with worker)"
+    echo "Complete Google login at https://localhost:${KASM_PORT:-6901}"
+    echo "VNC password: \${KASM_VNC_PW} (default: password)"
+    echo ""
+
+    # Start gws auth login in background, capture stderr for the auth URL
+    local gws_log
+    gws_log=$(mktemp)
+    gws auth login 2> >(tee "$gws_log" >&2) &
+    local gws_pid=$!
+
+    # Wait for gws to print the auth URL (up to 15s)
+    local auth_url="" attempts=0
+    while [ -z "$auth_url" ] && [ $attempts -lt 30 ]; do
+        auth_url=$(grep -oP 'https://accounts\.google\.com\S+' "$gws_log" 2>/dev/null | head -1)
+        [ -z "$auth_url" ] && { sleep 0.5; attempts=$((attempts + 1)); }
+    done
+
+    if [ -z "$auth_url" ]; then
+        echo "ERROR: Could not extract auth URL from gws output." >&2
+        echo "Falling back to manual mode." >&2
+        wait "$gws_pid" 2>/dev/null
+        rm -f "$gws_log"
+        _gws_login_manual
+        return
+    fi
+
+    echo "Auth URL detected. Opening in Chrome via CDP..."
+
+    # Open auth URL in Chrome tab
+    curl -sf -X PUT "$cdp_url/json/new?${auth_url}" >/dev/null 2>&1
+
+    echo "Waiting for OAuth callback (Chrome and worker share localhost)..."
+    echo "Complete login in VNC, callback will reach gws directly."
+
+    # Wait for gws to finish (callback arrives via localhost)
+    wait "$gws_pid" 2>/dev/null
+    rm -f "$gws_log"
+}
+
+# Manual login fallback (no Chrome available)
+_gws_login_manual() {
     echo ""
     echo "A browser URL will be displayed. Open it to authorize."
     echo "Select the API scopes you need (Gmail, Calendar, Drive, etc.)."
     echo ""
-    gws auth login
+    echo "NOTE: If localhost callback is unreachable (Docker/SSH/remote):"
+    echo "  1. Complete Google auth in your browser"
+    echo "  2. Copy the redirect URL from the browser address bar (localhost:PORT/?code=...)"
+    echo "  3. In another terminal: docker compose exec worker curl '<redirect-url>'"
     echo ""
-    echo "Done. Credentials saved to ~/.config/gws/"
-    echo "(Persisted in the gws_config Docker volume)"
+    gws auth login
 }
 
 # --- playwright ---
@@ -231,7 +289,7 @@ cmd_playwright() {
 
     local tmp
     tmp=$(mktemp)
-    local cdp_endpoint="${CHROME_CDP_URL:-http://chrome:9222}"
+    local cdp_endpoint="${CHROME_CDP_URL:-http://localhost:9222}"
     jq --arg cdp "$cdp_endpoint" '.mcpServers |= (. // {}) + {
         "playwright": {
             "command": "npx",

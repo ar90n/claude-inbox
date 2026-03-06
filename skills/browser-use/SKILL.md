@@ -14,7 +14,7 @@ Browser automation via Playwright MCP, connected to remote Chrome (kasmweb) via 
 ## Setup
 
 No setup required — Playwright MCP is pre-installed in the container.
-Chrome runs as a separate `kasmweb/chrome` container, connected via CDP (`CHROME_CDP_URL`).
+Chrome runs as a sidecar container (`network_mode: "service:worker"`), sharing localhost with the worker. Connected via CDP (`CHROME_CDP_URL`).
 
 ## Tools
 
@@ -36,7 +36,7 @@ Chrome runs as a separate `kasmweb/chrome` container, connected via CDP (`CHROME
 
 ## Notes
 
-- Chrome runs in a separate `kasmweb/chrome:1.15.0` container, connected via `CHROME_CDP_URL` (default: `http://chrome:9222`)
+- Chrome runs as a worker sidecar (shared localhost), connected via `CHROME_CDP_URL` (default: `http://localhost:9222`)
 - Logged-in sessions persist across tasks (shared Chrome profile volume)
 - Chrome GUI is accessible at https://localhost:6901 for visual debugging (VNC)
 - For long-running browser tasks, break into steps using `create-task`

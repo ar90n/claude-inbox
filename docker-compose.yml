@@ -18,30 +18,23 @@ services:
 
   chrome:
     image: kasmweb/chrome:1.15.0
+    network_mode: "service:worker"
     shm_size: '512m'
     environment:
       VNC_PW: ${KASM_VNC_PW:-password}
       LAUNCH_URL: "about:blank"
-      APP_ARGS: "--remote-debugging-port=9223 --remote-allow-origins=* --no-first-run --no-default-browser-check"
-    ports:
-      - "${KASM_PORT:-6901}:6901"
+      APP_ARGS: "--remote-debugging-port=9222 --remote-allow-origins=* --no-first-run --no-default-browser-check"
     volumes:
       - chrome_profile:/home/kasm-user
+    depends_on:
+      - worker
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:9223/json/version"]
+      test: ["CMD", "curl", "-sf", "http://localhost:9222/json/version"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 30s
-
-  chrome-cdp:
-    image: alpine/socat
-    command: "TCP-LISTEN:9222,fork,reuseaddr TCP:127.0.0.1:9223"
-    network_mode: "service:chrome"
-    depends_on:
-      - chrome
-    restart: unless-stopped
 
   worker:
     image: ghcr.io/ar90n/claude-inbox:latest
@@ -56,11 +49,13 @@ services:
       CLAUDE_TIMEOUT: ${CLAUDE_TIMEOUT:-600}
       CLAUDE_MEM_WORKER_HOST: claude-mem
       CLAUDE_MEM_WORKER_PORT: "37777"
-      CHROME_CDP_URL: http://chrome:9222
+      CHROME_CDP_URL: http://localhost:9222
       SWITCHBOT_TOKEN: ${SWITCHBOT_TOKEN:-}
       SWITCHBOT_SECRET: ${SWITCHBOT_SECRET:-}
       GOOGLE_WORKSPACE_CLI_CLIENT_ID: ${GOOGLE_WORKSPACE_CLI_CLIENT_ID:-}
       GOOGLE_WORKSPACE_CLI_CLIENT_SECRET: ${GOOGLE_WORKSPACE_CLI_CLIENT_SECRET:-}
+    ports:
+      - "${KASM_PORT:-6901}:6901"
     volumes:
       - ${CLAUDE_INBOX:-~/.claude-inbox}:/data/inbox
       - claude_dot:/home/claude-inbox/.claude
@@ -73,7 +68,6 @@ services:
     depends_on:
       - claude-mem
       - preprocessor
-      - chrome
     deploy:
       replicas: ${WORKERS:-1}
 
