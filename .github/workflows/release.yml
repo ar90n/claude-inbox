@@ -69,8 +69,15 @@ jobs:
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ steps.version.outputs.tag }}
 
+      - name: Bundle deployment files
+        run: |
+          tar czf claude-inbox-${{ steps.version.outputs.tag }}.tar.gz \
+            docker-compose.yml .env.example
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ steps.version.outputs.tag }}" --generate-notes
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --generate-notes \
+            claude-inbox-${{ steps.version.outputs.tag }}.tar.gz
