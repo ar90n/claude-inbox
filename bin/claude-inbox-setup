@@ -157,15 +157,6 @@ cmd_status() {
         echo "✗ Skills: not installed        →  run: claude-inbox-setup install-skills"
     fi
 
-    # Chrome (sidecar, shares localhost with worker)
-    local cdp_url="${CHROME_CDP_URL:-http://localhost:9222}"
-    if curl -sf "$cdp_url/json/version" >/dev/null 2>&1; then
-        local chrome_ver
-        chrome_ver=$(curl -sf "$cdp_url/json/version" | jq -r '.Browser // "unknown"')
-        echo "✓ Chrome (sidecar): $chrome_ver at $cdp_url"
-    else
-        echo "✗ Chrome (sidecar): not reachable at $cdp_url"
-    fi
 }
 
 # --- gws-login ---
@@ -249,8 +240,11 @@ _gws_login_cdp() {
 
     echo "Auth URL detected. Opening in Chrome via CDP..."
 
-    # Open auth URL in Chrome tab
-    curl -sf -X PUT "$cdp_url/json/new?${auth_url}" >/dev/null 2>&1 || true
+    # URL-encode the auth URL so its query params (?response_type=code&...)
+    # don't get parsed as CDP endpoint's own query parameters
+    local encoded_url
+    encoded_url=$(jq -rn --arg u "$auth_url" '$u | @uri')
+    curl -sf -X PUT "$cdp_url/json/new?${encoded_url}" >/dev/null 2>&1 || true
 
     echo "Waiting for OAuth callback (Chrome and worker share localhost)..."
     echo "Complete login in VNC, callback will reach gws directly."
