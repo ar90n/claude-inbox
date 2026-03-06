@@ -224,32 +224,25 @@ _gws_login_cdp() {
     echo "VNC password: \${KASM_VNC_PW} (default: password)"
     echo ""
 
-    # Start gws auth login in background, capture stderr via FIFO
-    local gws_log gws_fifo
+    # Run gws in background, capture stdout+stderr to log file
+    local gws_log
     gws_log=$(mktemp)
-    gws_fifo=$(mktemp -u)
-    mkfifo "$gws_fifo"
-
-    # tee: show stderr to user AND write to log file
-    tee "$gws_log" < "$gws_fifo" >&2 &
-    local tee_pid=$!
-
-    gws auth login 2>"$gws_fifo" &
+    gws auth login >"$gws_log" 2>&1 &
     local gws_pid=$!
 
-    # Wait for gws to print the auth URL (up to 15s)
+    # Poll for auth URL (up to 15s)
     local auth_url="" attempts=0
     while [ -z "$auth_url" ] && [ $attempts -lt 30 ]; do
-        auth_url=$(grep -oP 'https://accounts\.google\.com\S+' "$gws_log" 2>/dev/null | head -1)
+        auth_url=$(grep -oP 'https://accounts\.google\.com\S+' "$gws_log" 2>/dev/null | head -1 || true)
         [ -z "$auth_url" ] && { sleep 0.5; attempts=$((attempts + 1)); }
     done
 
     if [ -z "$auth_url" ]; then
         echo "ERROR: Could not extract auth URL from gws output." >&2
-        echo "Falling back to manual mode." >&2
-        wait "$gws_pid" 2>/dev/null
-        kill "$tee_pid" 2>/dev/null; wait "$tee_pid" 2>/dev/null
-        rm -f "$gws_log" "$gws_fifo"
+        echo "gws output:" >&2
+        cat "$gws_log" >&2
+        kill "$gws_pid" 2>/dev/null; wait "$gws_pid" 2>/dev/null || true
+        rm -f "$gws_log"
         _gws_login_manual
         return
     fi
@@ -257,15 +250,14 @@ _gws_login_cdp() {
     echo "Auth URL detected. Opening in Chrome via CDP..."
 
     # Open auth URL in Chrome tab
-    curl -sf -X PUT "$cdp_url/json/new?${auth_url}" >/dev/null 2>&1
+    curl -sf -X PUT "$cdp_url/json/new?${auth_url}" >/dev/null 2>&1 || true
 
     echo "Waiting for OAuth callback (Chrome and worker share localhost)..."
     echo "Complete login in VNC, callback will reach gws directly."
 
     # Wait for gws to finish (callback arrives via localhost)
-    wait "$gws_pid" 2>/dev/null
-    kill "$tee_pid" 2>/dev/null; wait "$tee_pid" 2>/dev/null
-    rm -f "$gws_log" "$gws_fifo"
+    wait "$gws_pid" 2>/dev/null || true
+    rm -f "$gws_log"
 }
 
 # Manual login fallback (no Chrome available)
