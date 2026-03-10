@@ -49,9 +49,8 @@ while true; do
         # Check if already ran this minute
         already_ran "$job_name" && continue
 
-        # Build task metadata header
-        session_id=$(generate_session_id "cron:${job_name}")
-        header="[from=cron channel=${job_channel:-cron} job=${job_name} session_id=${session_id}"
+        # Build task metadata header (no session_id: cron jobs are independent one-shot tasks)
+        header="[from=cron channel=${job_channel:-cron} job=${job_name}"
         [ -n "$job_chat_id" ] && header="$header chat_id=$job_chat_id"
         [ -n "$job_model" ] && header="$header model=$job_model"
         header="$header]"

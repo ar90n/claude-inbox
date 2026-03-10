@@ -28,14 +28,20 @@ setup() {
         local run_cmd="claude"
         local result="" rc=0
 
+        _run() {
+            result=$($run_cmd "$@" "${common_args[@]}" 2>&1) || return $?
+        }
+
         if [ -n "$session_id" ]; then
-            result=$($run_cmd --resume "$session_id" "${common_args[@]}" 2>&1) && {
-                echo "$result"
-                return 0
-            }
-            result=$($run_cmd --session-id "$session_id" "${common_args[@]}" 2>&1) || rc=$?
+            if _run --resume "$session_id"; then
+                echo "$result"; return 0
+            fi
+            if _run --session-id "$session_id"; then
+                echo "$result"; return 0
+            fi
+            _run || rc=$?
         else
-            result=$($run_cmd "${common_args[@]}" 2>&1) || rc=$?
+            _run || rc=$?
         fi
 
         echo "$result"
@@ -77,6 +83,23 @@ teardown() {
     local second_call
     second_call=$(sed -n '2p' "$MOCK_CLAUDE_LOG")
     [[ "$second_call" == *"--session-id test-session-id"* ]]
+}
+
+@test "--resume and --session-id both fail: falls back to no session" {
+    setup_mock_claude_session_stale "stale fallback ok"
+
+    run run_claude "hello" "test-session-id"
+    [ "$status" -eq 0 ]
+
+    # Should have 3 calls: --resume (failed), --session-id (failed), no session
+    local call_count
+    call_count=$(wc -l < "$MOCK_CLAUDE_LOG")
+    [ "$call_count" -eq 3 ]
+
+    local third_call
+    third_call=$(sed -n '3p' "$MOCK_CLAUDE_LOG")
+    [[ "$third_call" != *"--resume"* ]]
+    [[ "$third_call" != *"--session-id"* ]]
 }
 
 @test "no session_id: runs without session flags" {

@@ -95,15 +95,21 @@ run_claude() {
     }
 
     if [ -n "$session_id" ]; then
-        # Try --resume first (existing session)
+        # 1st: --resume (existing session)
         log "  trying --resume session=$session_id"
         if _run --resume "$session_id"; then
             echo "$result"; return 0
         fi
 
-        # --resume failed -> fall back to --session-id (new session)
+        # 2nd: --session-id (new session with same ID)
         log "  --resume failed, falling back to --session-id"
-        _run --session-id "$session_id" || rc=$?
+        if _run --session-id "$session_id"; then
+            echo "$result"; return 0
+        fi
+
+        # 3rd: no session (stale session_id that can't be reused)
+        log "  --session-id failed, running without session (session may be stale)"
+        _run || rc=$?
     else
         # No session_id
         log "  no session_id, running without session"

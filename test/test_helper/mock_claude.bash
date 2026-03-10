@@ -50,6 +50,34 @@ SCRIPT
     export PATH="$MOCK_CLAUDE_DIR:$PATH"
 }
 
+# Setup a mock that fails on both --resume and --session-id, succeeds without either
+setup_mock_claude_session_stale() {
+    local output="${1:-mock result}"
+
+    export MOCK_CLAUDE_DIR="$(mktemp -d)"
+    export MOCK_CLAUDE_LOG="$MOCK_CLAUDE_DIR/calls.log"
+
+    cat > "$MOCK_CLAUDE_DIR/claude" <<'SCRIPT'
+#!/bin/bash
+LOG_FILE="$(dirname "$0")/calls.log"
+echo "$@" >> "$LOG_FILE"
+for arg in "$@"; do
+    if [ "$arg" = "--resume" ]; then
+        echo "Error: context exceeded" >&2
+        exit 1
+    fi
+    if [ "$arg" = "--session-id" ]; then
+        echo "Error: Session ID is already in use" >&2
+        exit 1
+    fi
+done
+echo "mock result"
+exit 0
+SCRIPT
+    chmod +x "$MOCK_CLAUDE_DIR/claude"
+    export PATH="$MOCK_CLAUDE_DIR:$PATH"
+}
+
 teardown_mock_claude() {
     [ -d "$MOCK_CLAUDE_DIR" ] && rm -rf "$MOCK_CLAUDE_DIR"
 }
