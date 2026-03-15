@@ -110,9 +110,14 @@ cmd_claude_mem() {
 cmd_status() {
     echo "=== claude-inbox setup status ==="
 
-    # Claude auth (credentials stored in ~/.claude/.credentials.json)
-    if [ -s "$HOME/.claude/.credentials.json" ]; then
-        echo "✓ Claude: authenticated"
+    # Claude auth (verify via CLI, not just file existence)
+    local claude_auth
+    if claude_auth=$(claude auth status 2>/dev/null) && \
+       [ "$(echo "$claude_auth" | jq -r '.loggedIn')" = "true" ]; then
+        local email method
+        email=$(echo "$claude_auth" | jq -r '.email // "unknown"')
+        method=$(echo "$claude_auth" | jq -r '.authMethod // "unknown"')
+        echo "✓ Claude: authenticated ($method, $email)"
     else
         echo "✗ Claude: not authenticated      →  run: claude-inbox-setup login"
     fi
