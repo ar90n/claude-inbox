@@ -20,7 +20,8 @@ mkdir -p "$HOME/.claude/debug" "$HOME/.claude/projects"
 [ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
 
 export CLAUDE_INBOX="${CLAUDE_INBOX:-$HOME/.claude-inbox}"
-WORKER_ID="w.$$"
+# WORKER_ID includes hostname so replicas don't collide on PID 1.
+WORKER_ID="w.${HOSTNAME:-host}.$$"
 WORKDIR="${CLAUDE_INBOX_WORKDIR:-}"
 
 # prompts/ and skills/ are always in /app (image layer)
@@ -41,12 +42,32 @@ source "$ROOT_DIR/lib/util.sh"
 
 log() { printf '[%s] [%s] %s\n' "$(date -Is)" "$WORKER_ID" "$*" >&2; }
 
+# Heartbeat: a background writer keeps cur/$WORKER_ID/.heartbeat fresh so other
+# workers can detect a SIGKILL'd predecessor via task_recover_orphans.
+HEARTBEAT_FILE="$CLAUDE_INBOX/cur/$WORKER_ID/.heartbeat"
+HEARTBEAT_INTERVAL="${HEARTBEAT_INTERVAL:-30}"
+HEARTBEAT_PID=""
+date +%s > "$HEARTBEAT_FILE"
+(
+    while sleep "$HEARTBEAT_INTERVAL"; do
+        [ -d "$(dirname "$HEARTBEAT_FILE")" ] || exit 0
+        date +%s > "$HEARTBEAT_FILE" 2>/dev/null || exit 0
+    done
+) &
+HEARTBEAT_PID=$!
+
 cleanup() {
+    if [ -n "${HEARTBEAT_PID:-}" ]; then
+        kill "$HEARTBEAT_PID" 2>/dev/null || true
+    fi
     session_unlock
     task_recover "$WORKER_ID"
     log "stopped"
 }
 trap cleanup EXIT INT TERM
+
+# Recover orphans from workers that were SIGKILL'd before their cleanup ran.
+task_recover_orphans
 
 system_prompt=""
 [ -f "$SYSTEM" ] && system_prompt=$(cat "$SYSTEM")
@@ -83,7 +104,9 @@ run_claude() {
     [ -d "$SKILLS_DIR" ] && common_args+=(--add-dir "$SKILLS_DIR")
 
     local claude_timeout="${CLAUDE_TIMEOUT:-600}"
-    local run_cmd="timeout $claude_timeout claude"
+    # --kill-after escalates to SIGKILL 30s after SIGTERM, in case a child
+    # (Playwright/Chrome/MCP server) ignores SIGTERM and holds stdout open.
+    local run_cmd="timeout --kill-after=30 $claude_timeout claude"
     local result="" rc=0
 
     _run() {
@@ -94,26 +117,34 @@ run_claude() {
         fi
     }
 
+    # Exit codes that mean "the process was killed" — retrying just burns another
+    # timeout window. 124 = timeout SIGTERM, 137 = SIGKILL (incl --kill-after), 143 = SIGTERM.
+    _is_terminal_rc() {
+        case "$1" in 124|137|143) return 0 ;; *) return 1 ;; esac
+    }
+
     if [ -n "$session_id" ]; then
         # 1st: --resume (existing session)
         log "  trying --resume session=$session_id"
-        if _run --resume "$session_id"; then
-            echo "$result"; return 0
+        rc=0; _run --resume "$session_id" || rc=$?
+        if [ "$rc" -eq 0 ] || _is_terminal_rc "$rc"; then
+            echo "$result"; return $rc
         fi
 
         # 2nd: --session-id (new session with same ID)
-        log "  --resume failed, falling back to --session-id"
-        if _run --session-id "$session_id"; then
-            echo "$result"; return 0
+        log "  --resume failed (rc=$rc), falling back to --session-id"
+        rc=0; _run --session-id "$session_id" || rc=$?
+        if [ "$rc" -eq 0 ] || _is_terminal_rc "$rc"; then
+            echo "$result"; return $rc
         fi
 
         # 3rd: no session (stale session_id that can't be reused)
-        log "  --session-id failed, running without session (session may be stale)"
-        _run || rc=$?
+        log "  --session-id failed (rc=$rc), running without session (session may be stale)"
+        rc=0; _run || rc=$?
     else
         # No session_id
         log "  no session_id, running without session"
-        _run || rc=$?
+        rc=0; _run || rc=$?
     fi
 
     echo "$result"

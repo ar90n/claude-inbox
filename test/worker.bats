@@ -32,16 +32,22 @@ setup() {
             result=$($run_cmd "$@" "${common_args[@]}" 2>&1) || return $?
         }
 
+        _is_terminal_rc() {
+            case "$1" in 124|137|143) return 0 ;; *) return 1 ;; esac
+        }
+
         if [ -n "$session_id" ]; then
-            if _run --resume "$session_id"; then
-                echo "$result"; return 0
+            rc=0; _run --resume "$session_id" || rc=$?
+            if [ "$rc" -eq 0 ] || _is_terminal_rc "$rc"; then
+                echo "$result"; return $rc
             fi
-            if _run --session-id "$session_id"; then
-                echo "$result"; return 0
+            rc=0; _run --session-id "$session_id" || rc=$?
+            if [ "$rc" -eq 0 ] || _is_terminal_rc "$rc"; then
+                echo "$result"; return $rc
             fi
-            _run || rc=$?
+            rc=0; _run || rc=$?
         else
-            _run || rc=$?
+            rc=0; _run || rc=$?
         fi
 
         echo "$result"
@@ -164,4 +170,69 @@ teardown() {
     local call
     call=$(cat "$MOCK_CLAUDE_LOG")
     [[ "$call" != *"--add-dir"* ]]
+}
+
+# --- Timeout short-circuit ---
+# Regression: timeout (124, 137, 143) used to trigger the session fallback,
+# causing 3x the timeout window per task. Must now short-circuit.
+
+@test "rc=124 (timeout) on --resume short-circuits without retry" {
+    setup_mock_claude 124 "(timeout)"
+
+    run run_claude "hello" "test-session-id"
+    [ "$status" -eq 124 ]
+
+    # Only one call: must not have fallen back to --session-id or bare
+    local call_count
+    call_count=$(wc -l < "$MOCK_CLAUDE_LOG")
+    [ "$call_count" -eq 1 ]
+
+    local only_call
+    only_call=$(head -1 "$MOCK_CLAUDE_LOG")
+    [[ "$only_call" == *"--resume test-session-id"* ]]
+}
+
+@test "rc=137 (SIGKILL) short-circuits without retry" {
+    setup_mock_claude 137 "(killed)"
+
+    run run_claude "hello" "test-session-id"
+    [ "$status" -eq 137 ]
+
+    local call_count
+    call_count=$(wc -l < "$MOCK_CLAUDE_LOG")
+    [ "$call_count" -eq 1 ]
+}
+
+@test "rc=143 (SIGTERM) short-circuits without retry" {
+    setup_mock_claude 143 "(terminated)"
+
+    run run_claude "hello" "test-session-id"
+    [ "$status" -eq 143 ]
+
+    local call_count
+    call_count=$(wc -l < "$MOCK_CLAUDE_LOG")
+    [ "$call_count" -eq 1 ]
+}
+
+@test "rc=124 on --resume short-circuits even without session_id" {
+    setup_mock_claude 124 "(timeout)"
+
+    run run_claude "hello" ""
+    [ "$status" -eq 124 ]
+
+    local call_count
+    call_count=$(wc -l < "$MOCK_CLAUDE_LOG")
+    [ "$call_count" -eq 1 ]
+}
+
+@test "rc=1 (non-terminal) still falls back to --session-id" {
+    # Regression guard: don't over-eagerly short-circuit on non-timeout errors
+    setup_mock_claude_resume_fallback "fallback ok"
+
+    run run_claude "hello" "test-session-id"
+    [ "$status" -eq 0 ]
+
+    local call_count
+    call_count=$(wc -l < "$MOCK_CLAUDE_LOG")
+    [ "$call_count" -eq 2 ]
 }
