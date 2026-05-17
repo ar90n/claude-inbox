@@ -57,7 +57,9 @@ date +%s > "$HEARTBEAT_FILE"
 HEARTBEAT_PID=$!
 
 cleanup() {
-    [ -n "${HEARTBEAT_PID:-}" ] && kill "$HEARTBEAT_PID" 2>/dev/null || true
+    if [ -n "${HEARTBEAT_PID:-}" ]; then
+        kill "$HEARTBEAT_PID" 2>/dev/null || true
+    fi
     session_unlock
     task_recover "$WORKER_ID"
     log "stopped"
