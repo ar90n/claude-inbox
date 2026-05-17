@@ -164,3 +164,143 @@ load test_helper/common
     run task_recover "nonexistent-worker"
     [ "$status" -eq 0 ]
 }
+
+# --- task_recover: attempts counter ---
+
+@test "task_recover increments attempts to 1 on first recovery" {
+    create_task_dir "orphan" >/dev/null
+    local claimed; claimed=$(task_claim "dead-worker")
+    local job_id; job_id=$(basename "$claimed")
+
+    task_recover "dead-worker"
+
+    [ -d "$CLAUDE_INBOX/tasks/$job_id" ]
+    grep -q "^attempts=1$" "$CLAUDE_INBOX/tasks/$job_id/meta"
+}
+
+@test "task_recover increments existing attempts" {
+    create_task_dir "orphan" >/dev/null
+    local claimed; claimed=$(task_claim "dead-worker")
+    local job_id; job_id=$(basename "$claimed")
+    echo "attempts=1" > "$claimed/meta"
+
+    task_recover "dead-worker"
+
+    grep -q "^attempts=2$" "$CLAUDE_INBOX/tasks/$job_id/meta"
+}
+
+@test "task_recover moves to failed/ at TASK_MAX_ATTEMPTS" {
+    create_task_dir "poison" >/dev/null
+    local claimed; claimed=$(task_claim "dead-worker")
+    local job_id; job_id=$(basename "$claimed")
+    echo "attempts=1" > "$claimed/meta"
+
+    TASK_MAX_ATTEMPTS=2 task_recover "dead-worker"
+
+    [ -d "$CLAUDE_INBOX/failed/$job_id" ]
+    [ ! -d "$CLAUDE_INBOX/tasks/$job_id" ]
+    grep -q "recovered 2 times" "$CLAUDE_INBOX/failed/$job_id/result"
+}
+
+@test "task_recover preserves other meta fields when bumping attempts" {
+    create_task_dir "orphan" >/dev/null
+    local claimed; claimed=$(task_claim "dead-worker")
+    local job_id; job_id=$(basename "$claimed")
+    {
+        echo "session_id=abc-123"
+        echo "channel=telegram"
+        echo "chat_id=42"
+    } > "$claimed/meta"
+
+    task_recover "dead-worker"
+
+    local meta="$CLAUDE_INBOX/tasks/$job_id/meta"
+    grep -q "^session_id=abc-123$" "$meta"
+    grep -q "^channel=telegram$" "$meta"
+    grep -q "^chat_id=42$" "$meta"
+    grep -q "^attempts=1$" "$meta"
+}
+
+@test "task_recover replaces existing attempts line rather than appending duplicate" {
+    create_task_dir "orphan" >/dev/null
+    local claimed; claimed=$(task_claim "dead-worker")
+    local job_id; job_id=$(basename "$claimed")
+    {
+        echo "session_id=abc"
+        echo "attempts=1"
+    } > "$claimed/meta"
+
+    task_recover "dead-worker"
+
+    local meta="$CLAUDE_INBOX/tasks/$job_id/meta"
+    local count
+    count=$(grep -c "^attempts=" "$meta")
+    [ "$count" -eq 1 ]
+    grep -q "^attempts=2$" "$meta"
+}
+
+# --- task_recover_orphans ---
+
+@test "task_recover_orphans skips workers with fresh heartbeat" {
+    create_task_dir "live" >/dev/null
+    local claimed; claimed=$(task_claim "live-worker")
+    local job_id; job_id=$(basename "$claimed")
+    date +%s > "$CLAUDE_INBOX/cur/live-worker/.heartbeat"
+
+    WORKER_ID="other-worker" task_recover_orphans
+
+    [ -d "$CLAUDE_INBOX/cur/live-worker/$job_id" ]
+    [ ! -d "$CLAUDE_INBOX/tasks/$job_id" ]
+}
+
+@test "task_recover_orphans recovers workers with stale heartbeat" {
+    create_task_dir "orphan" >/dev/null
+    local claimed; claimed=$(task_claim "dead-worker")
+    local job_id; job_id=$(basename "$claimed")
+    # heartbeat from 1 hour ago
+    echo $(($(date +%s) - 3600)) > "$CLAUDE_INBOX/cur/dead-worker/.heartbeat"
+
+    WORKER_ID="alive-worker" task_recover_orphans
+
+    [ -d "$CLAUDE_INBOX/tasks/$job_id" ]
+    [ ! -d "$CLAUDE_INBOX/cur/dead-worker" ]
+}
+
+@test "task_recover_orphans recovers workers with no heartbeat file" {
+    create_task_dir "orphan" >/dev/null
+    local claimed; claimed=$(task_claim "dead-worker")
+    local job_id; job_id=$(basename "$claimed")
+    # no .heartbeat file
+
+    WORKER_ID="alive-worker" task_recover_orphans
+
+    [ -d "$CLAUDE_INBOX/tasks/$job_id" ]
+}
+
+@test "task_recover_orphans skips self even with no heartbeat" {
+    create_task_dir "my-task" >/dev/null
+    local claimed; claimed=$(task_claim "self-worker")
+    local job_id; job_id=$(basename "$claimed")
+
+    WORKER_ID="self-worker" task_recover_orphans
+
+    [ -d "$CLAUDE_INBOX/cur/self-worker/$job_id" ]
+    [ ! -d "$CLAUDE_INBOX/tasks/$job_id" ]
+}
+
+@test "task_recover_orphans tolerates malformed heartbeat values" {
+    create_task_dir "orphan" >/dev/null
+    local claimed; claimed=$(task_claim "dead-worker")
+    local job_id; job_id=$(basename "$claimed")
+    echo "not-a-number" > "$CLAUDE_INBOX/cur/dead-worker/.heartbeat"
+
+    WORKER_ID="alive-worker" task_recover_orphans
+
+    # Treated as ts=0 → very stale → recovered
+    [ -d "$CLAUDE_INBOX/tasks/$job_id" ]
+}
+
+@test "task_recover_orphans is a no-op when cur/ is empty" {
+    run task_recover_orphans
+    [ "$status" -eq 0 ]
+}

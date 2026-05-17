@@ -98,16 +98,84 @@ task_submit() {
 }
 
 # --- recover: Move orphaned task directories from cur/$WORKER_ID/ back to tasks/ ---
+#
+# Increments an `attempts=N` counter in each task's meta file. Once attempts
+# reach TASK_MAX_ATTEMPTS (default 3), the task is moved to failed/ instead of
+# tasks/ to prevent poison-pill tasks from looping forever across worker restarts.
 task_recover() {
     local worker_id="${1:?worker_id required}"
     local cur_dir="$CLAUDE_INBOX/cur/$worker_id"
+    local max="${TASK_MAX_ATTEMPTS:-3}"
 
     local d
     for d in "$cur_dir"/*/; do
         [ -d "$d" ] || continue
-        mv "$d" "$CLAUDE_INBOX/tasks/" 2>/dev/null || true
+        local job_id
+        job_id=$(basename "$d")
+
+        # Read existing attempts (default 0)
+        local attempts=0
+        if [ -f "$d/meta" ]; then
+            local v
+            v=$(grep -oP '^attempts=\K[0-9]+' "$d/meta" 2>/dev/null || true)
+            [ -n "$v" ] && attempts="$v"
+        fi
+        attempts=$((attempts + 1))
+
+        # Rewrite meta with updated attempts, preserving other fields
+        local tmp_meta="$d/meta.tmp"
+        if [ -f "$d/meta" ]; then
+            grep -v '^attempts=' "$d/meta" > "$tmp_meta" 2>/dev/null || true
+        else
+            : > "$tmp_meta"
+        fi
+        echo "attempts=$attempts" >> "$tmp_meta"
+        mv "$tmp_meta" "$d/meta"
+
+        if [ "$attempts" -ge "$max" ]; then
+            mkdir -p "$CLAUDE_INBOX/failed"
+            printf 'recovered %d times (>= max %d), giving up\n' "$attempts" "$max" > "$d/result"
+            mv "$d" "$CLAUDE_INBOX/failed/$job_id" 2>/dev/null || true
+        else
+            mv "$d" "$CLAUDE_INBOX/tasks/$job_id" 2>/dev/null || true
+        fi
     done
+    rm -f "$cur_dir/.heartbeat" 2>/dev/null || true
     rmdir "$cur_dir" 2>/dev/null || true
+}
+
+# --- recover_orphans: Scan cur/*/ for dead workers and recover their tasks ---
+#
+# A worker is presumed dead when its heartbeat file is missing or older than
+# TASK_HEARTBEAT_TIMEOUT seconds (default 120). Used to clean up after a worker
+# that was SIGKILL'd before its EXIT trap could run task_recover. Skips the
+# current $WORKER_ID so a running worker doesn't recover itself.
+task_recover_orphans() {
+    local stale="${TASK_HEARTBEAT_TIMEOUT:-120}"
+    local cur_root="$CLAUDE_INBOX/cur"
+    [ -d "$cur_root" ] || return 0
+
+    local now
+    now=$(date +%s)
+
+    local cur_dir
+    for cur_dir in "$cur_root"/*/; do
+        [ -d "$cur_dir" ] || continue
+        local wid
+        wid=$(basename "$cur_dir")
+        [ "$wid" = "${WORKER_ID:-}" ] && continue
+
+        local hb_file="$cur_dir/.heartbeat"
+        if [ -f "$hb_file" ]; then
+            local hb_ts age
+            hb_ts=$(cat "$hb_file" 2>/dev/null || echo 0)
+            [[ "$hb_ts" =~ ^[0-9]+$ ]] || hb_ts=0
+            age=$((now - hb_ts))
+            [ "$age" -lt "$stale" ] && continue
+        fi
+
+        task_recover "$wid"
+    done
 }
 
 # --- Session locking ---

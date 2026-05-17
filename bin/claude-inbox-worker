@@ -20,7 +20,8 @@ mkdir -p "$HOME/.claude/debug" "$HOME/.claude/projects"
 [ -f "$HOME/.claude.json" ] || echo '{}' > "$HOME/.claude.json"
 
 export CLAUDE_INBOX="${CLAUDE_INBOX:-$HOME/.claude-inbox}"
-WORKER_ID="w.$$"
+# WORKER_ID includes hostname so replicas don't collide on PID 1.
+WORKER_ID="w.${HOSTNAME:-host}.$$"
 WORKDIR="${CLAUDE_INBOX_WORKDIR:-}"
 
 # prompts/ and skills/ are always in /app (image layer)
@@ -41,12 +42,30 @@ source "$ROOT_DIR/lib/util.sh"
 
 log() { printf '[%s] [%s] %s\n' "$(date -Is)" "$WORKER_ID" "$*" >&2; }
 
+# Heartbeat: a background writer keeps cur/$WORKER_ID/.heartbeat fresh so other
+# workers can detect a SIGKILL'd predecessor via task_recover_orphans.
+HEARTBEAT_FILE="$CLAUDE_INBOX/cur/$WORKER_ID/.heartbeat"
+HEARTBEAT_INTERVAL="${HEARTBEAT_INTERVAL:-30}"
+HEARTBEAT_PID=""
+date +%s > "$HEARTBEAT_FILE"
+(
+    while sleep "$HEARTBEAT_INTERVAL"; do
+        [ -d "$(dirname "$HEARTBEAT_FILE")" ] || exit 0
+        date +%s > "$HEARTBEAT_FILE" 2>/dev/null || exit 0
+    done
+) &
+HEARTBEAT_PID=$!
+
 cleanup() {
+    [ -n "${HEARTBEAT_PID:-}" ] && kill "$HEARTBEAT_PID" 2>/dev/null || true
     session_unlock
     task_recover "$WORKER_ID"
     log "stopped"
 }
 trap cleanup EXIT INT TERM
+
+# Recover orphans from workers that were SIGKILL'd before their cleanup ran.
+task_recover_orphans
 
 system_prompt=""
 [ -f "$SYSTEM" ] && system_prompt=$(cat "$SYSTEM")
