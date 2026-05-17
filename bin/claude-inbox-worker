@@ -83,7 +83,9 @@ run_claude() {
     [ -d "$SKILLS_DIR" ] && common_args+=(--add-dir "$SKILLS_DIR")
 
     local claude_timeout="${CLAUDE_TIMEOUT:-600}"
-    local run_cmd="timeout $claude_timeout claude"
+    # --kill-after escalates to SIGKILL 30s after SIGTERM, in case a child
+    # (Playwright/Chrome/MCP server) ignores SIGTERM and holds stdout open.
+    local run_cmd="timeout --kill-after=30 $claude_timeout claude"
     local result="" rc=0
 
     _run() {
@@ -94,26 +96,34 @@ run_claude() {
         fi
     }
 
+    # Exit codes that mean "the process was killed" — retrying just burns another
+    # timeout window. 124 = timeout SIGTERM, 137 = SIGKILL (incl --kill-after), 143 = SIGTERM.
+    _is_terminal_rc() {
+        case "$1" in 124|137|143) return 0 ;; *) return 1 ;; esac
+    }
+
     if [ -n "$session_id" ]; then
         # 1st: --resume (existing session)
         log "  trying --resume session=$session_id"
-        if _run --resume "$session_id"; then
-            echo "$result"; return 0
+        rc=0; _run --resume "$session_id" || rc=$?
+        if [ "$rc" -eq 0 ] || _is_terminal_rc "$rc"; then
+            echo "$result"; return $rc
         fi
 
         # 2nd: --session-id (new session with same ID)
-        log "  --resume failed, falling back to --session-id"
-        if _run --session-id "$session_id"; then
-            echo "$result"; return 0
+        log "  --resume failed (rc=$rc), falling back to --session-id"
+        rc=0; _run --session-id "$session_id" || rc=$?
+        if [ "$rc" -eq 0 ] || _is_terminal_rc "$rc"; then
+            echo "$result"; return $rc
         fi
 
         # 3rd: no session (stale session_id that can't be reused)
-        log "  --session-id failed, running without session (session may be stale)"
-        _run || rc=$?
+        log "  --session-id failed (rc=$rc), running without session (session may be stale)"
+        rc=0; _run || rc=$?
     else
         # No session_id
         log "  no session_id, running without session"
-        _run || rc=$?
+        rc=0; _run || rc=$?
     fi
 
     echo "$result"
