@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>アンラッキーモンスター 太鼓風</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #101020;
+    color: #eee;
+    font-family: "Hiragino Sans", "Yu Gothic", sans-serif;
+    height: 100%;
+    overflow: hidden;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    gap: 12px;
+  }
+  canvas {
+    background: linear-gradient(180deg, #1a1a35 0%, #0a0a1a 100%);
+    border: 2px solid #444;
+    border-radius: 8px;
+    max-width: 100vw;
+    max-height: 70vh;
+    touch-action: manipulation;
+  }
+  #hud {
+    display: flex;
+    gap: 24px;
+    font-size: 18px;
+    align-items: center;
+  }
+  #hud .box {
+    background: #222245;
+    padding: 6px 14px;
+    border-radius: 6px;
+  }
+  #controls {
+    display: flex;
+    gap: 12px;
+    margin-top: 4px;
+  }
+  #controls button {
+    background: #333366;
+    color: #fff;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-size: 16px;
+    cursor: pointer;
+  }
+  #controls button:hover { background: #4444aa; }
+  #overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    z-index: 10;
+  }
+  #overlay h1 { margin: 0; font-size: 32px; }
+  #overlay p  { margin: 0; max-width: 480px; text-align: center; line-height: 1.5; }
+  #overlay button {
+    background: #ff5555;
+    color: #fff;
+    border: none;
+    padding: 12px 28px;
+    border-radius: 8px;
+    font-size: 18px;
+    cursor: pointer;
+  }
+  .hidden { display: none !important; }
+  .pad {
+    display: flex;
+    gap: 12px;
+  }
+  .pad button {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    border: none;
+    font-size: 22px;
+    font-weight: bold;
+    color: #fff;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .don { background: radial-gradient(circle at 30% 30%, #ff8888, #cc2222); }
+  .ka  { background: radial-gradient(circle at 30% 30%, #88ccff, #2266cc); }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="hud">
+    <div class="box">Score: <span id="score">0</span></div>
+    <div class="box">Combo: <span id="combo">0</span></div>
+    <div class="box">Judge: <span id="judge">-</span></div>
+  </div>
+  <canvas id="game" width="960" height="240"></canvas>
+  <div class="pad">
+    <button class="don" id="btnDon">DON (F/J)</button>
+    <button class="ka"  id="btnKa">KA (D/K)</button>
+  </div>
+  <div id="controls">
+    <button id="btnStart">Start</button>
+    <button id="btnRetry">Retry</button>
+  </div>
+</div>
+
+<div id="overlay">
+  <h1>アンラッキーモンスター 太鼓風</h1>
+  <p>
+    赤い音符（DON）は <b>F</b> または <b>J</b>、青い音符（KA）は <b>D</b> または <b>K</b>。<br>
+    スマホは下の丸ボタンをタップ。判定ラインで叩くとスコアアップ！<br>
+    ※ 譜面は動画のリズムをイメージした 16 beat 中心の創作譜面です。
+  </p>
+  <button id="btnGo">Play!</button>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  const scoreEl = document.getElementById('score');
+  const comboEl = document.getElementById('combo');
+  const judgeEl = document.getElementById('judge');
+  const overlay = document.getElementById('overlay');
+  const btnGo = document.getElementById('btnGo');
+  const btnStart = document.getElementById('btnStart');
+  const btnRetry = document.getElementById('btnRetry');
+  const btnDon = document.getElementById('btnDon');
+  const btnKa  = document.getElementById('btnKa');
+
+  // BPM based chart (approx. "Unlucky Monster" tempo ~180)
+  const BPM = 180;
+  const BEAT = 60 / BPM; // sec per beat
+  const HIT_X = 140;      // judge line x-position
+  const NOTE_R = 26;
+  const NOTE_SPEED = 520; // px/sec
+
+  // Judgement windows (sec)
+  const W_PERFECT = 0.045;
+  const W_GOOD    = 0.10;
+  const W_MISS    = 0.15;
+
+  // Chart: [beatOffset, type]  type: 'don'|'ka'
+  // 16-bar pattern loosely inspired by 4-on-the-floor J-pop rock rhythm.
+  const PATTERN = [
+    // bar 1: DON . DON . DON . DON .
+    [0.0,'don'],[1.0,'don'],[2.0,'don'],[3.0,'don'],
+    // bar 2: DON KA DON KA DON KA DON KA
+    [4.0,'don'],[4.5,'ka'],[5.0,'don'],[5.5,'ka'],
+    [6.0,'don'],[6.5,'ka'],[7.0,'don'],[7.5,'ka'],
+    // bar 3: DON . KA KA DON . KA KA
+    [8.0,'don'],[9.0,'ka'],[9.5,'ka'],
+    [10.0,'don'],[11.0,'ka'],[11.5,'ka'],
+    // bar 4: 16 beats DON DON KA DON  x2
+    [12.0,'don'],[12.25,'don'],[12.5,'ka'],[12.75,'don'],
+    [13.0,'don'],[13.25,'don'],[13.5,'ka'],[13.75,'don'],
+    [14.0,'ka'],[14.25,'ka'],[14.5,'don'],[14.75,'ka'],
+    [15.0,'don'],[15.5,'don'],
+  ];
+
+  // Repeat pattern several times to make a full song (~40s)
+  const REPEATS = 3;
+  const BAR_LEN = 16; // beats per repeat
+  const notes = [];
+  for (let r = 0; r < REPEATS; r++) {
+    for (const [b, t] of PATTERN) {
+      notes.push({
+        time: (b + r * BAR_LEN) * BEAT + 2.0, // 2s lead-in
+        type: t,
+        hit: false,
+        judged: false,
+      });
+    }
+  }
+  const SONG_LEN = notes[notes.length - 1].time + 2.0;
+
+  // WebAudio for click sounds
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const audio = new AC();
+  function playHit(type) {
+    const o = audio.createOscillator();
+    const g = audio.createGain();
+    o.connect(g); g.connect(audio.destination);
+    if (type === 'don') {
+      o.type = 'sine'; o.frequency.value = 140;
+      g.gain.value = 0.35;
+    } else {
+      o.type = 'square'; o.frequency.value = 720;
+      g.gain.value = 0.18;
+    }
+    g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.15);
+    o.start(); o.stop(audio.currentTime + 0.15);
+  }
+  function playMetronome(freq) {
+    const o = audio.createOscillator();
+    const g = audio.createGain();
+    o.connect(g); g.connect(audio.destination);
+    o.type = 'triangle'; o.frequency.value = freq;
+    g.gain.value = 0.08;
+    g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.1);
+    o.start(); o.stop(audio.currentTime + 0.1);
+  }
+
+  // Simple background melody with WebAudio (loops)
+  let melodyTimer = null;
+  const MELODY = [ // [beatOffset, midi] loose Am pentatonic riff
+    [0.0, 69],[0.5, 72],[1.0, 74],[1.5, 76],
+    [2.0, 77],[2.5, 76],[3.0, 74],[3.5, 72],
+    [4.0, 69],[4.5, 67],[5.0, 65],[5.5, 67],
+    [6.0, 69],[6.5, 72],[7.0, 74],[7.5, 76],
+  ];
+  function midiToFreq(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+  function scheduleMelody(startTime) {
+    for (let r = 0; r < REPEATS * 2; r++) {
+      for (const [b, m] of MELODY) {
+        const t = startTime + (b + r * 8) * BEAT;
+        const o = audio.createOscillator();
+        const g = audio.createGain();
+        o.type = 'triangle';
+        o.frequency.value = midiToFreq(m);
+        g.gain.value = 0.06;
+        o.connect(g); g.connect(audio.destination);
+        g.gain.setValueAtTime(0.06, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + BEAT * 0.4);
+        o.start(t); o.stop(t + BEAT * 0.5);
+      }
+    }
+  }
+
+  // Game state
+  let score = 0, combo = 0, maxCombo = 0, playing = false, startAudioTime = 0;
+  let judgeFlash = { text: '', color: '#fff', at: -1 };
+
+  function reset() {
+    score = 0; combo = 0; maxCombo = 0;
+    for (const n of notes) { n.hit = false; n.judged = false; }
+    scoreEl.textContent = 0;
+    comboEl.textContent = 0;
+    judgeEl.textContent = '-';
+  }
+
+  function currentTime() { return audio.currentTime - startAudioTime; }
+
+  function start() {
+    if (playing) return;
+    if (audio.state === 'suspended') audio.resume();
+    reset();
+    startAudioTime = audio.currentTime;
+    playing = true;
+    scheduleMelody(startAudioTime + 2.0);
+    setTimeout(() => { playing = false; }, SONG_LEN * 1000 + 500);
+  }
+
+  function judge(type) {
+    if (!playing) return;
+    const t = currentTime();
+    // find closest unjudged note of same type within miss window
+    let best = null, bestDt = Infinity;
+    for (const n of notes) {
+      if (n.judged) continue;
+      const dt = Math.abs(n.time - t);
+      if (dt < bestDt && dt < W_MISS) {
+        if (n.type === type) { best = n; bestDt = dt; }
+      }
+    }
+    playHit(type);
+    if (!best) {
+      showJudge('BAD', '#ff5555');
+      combo = 0;
+      return;
+    }
+    best.judged = true; best.hit = true;
+    if (bestDt < W_PERFECT) {
+      score += 300; combo += 1; showJudge('PERFECT', '#ffdd44');
+    } else if (bestDt < W_GOOD) {
+      score += 100; combo += 1; showJudge('GOOD', '#66ff88');
+    } else {
+      score += 20; combo = 0; showJudge('BAD', '#ff5555');
+    }
+    if (combo > maxCombo) maxCombo = combo;
+    scoreEl.textContent = score;
+    comboEl.textContent = combo;
+  }
+
+  function showJudge(text, color) {
+    judgeFlash = { text, color, at: performance.now() };
+    judgeEl.textContent = text;
+  }
+
+  // Auto-miss check
+  function updateMisses(t) {
+    for (const n of notes) {
+      if (n.judged) continue;
+      if (t - n.time > W_MISS) {
+        n.judged = true;
+        combo = 0;
+        showJudge('MISS', '#ff5555');
+        comboEl.textContent = 0;
+      }
+    }
+  }
+
+  // Rendering
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    // Lane
+    ctx.fillStyle = '#222240';
+    ctx.fillRect(0, H/2 - 40, W, 80);
+    ctx.strokeStyle = '#444';
+    ctx.beginPath();
+    ctx.moveTo(0, H/2); ctx.lineTo(W, H/2); ctx.stroke();
+
+    // Judge circle
+    ctx.beginPath();
+    ctx.arc(HIT_X, H/2, NOTE_R + 6, 0, Math.PI * 2);
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(HIT_X, H/2, NOTE_R + 2, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.fill();
+
+    // Notes
+    const t = playing ? currentTime() : -1e9;
+    for (const n of notes) {
+      if (n.judged && !n.hit) continue; // missed, don't draw
+      if (n.judged && n.hit) continue;   // hit, don't draw
+      const dx = (n.time - t) * NOTE_SPEED;
+      const x = HIT_X + dx;
+      if (x < -NOTE_R || x > W + NOTE_R) continue;
+      // shadow
+      ctx.beginPath();
+      ctx.arc(x + 2, H/2 + 4, NOTE_R, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fill();
+      // body
+      ctx.beginPath();
+      ctx.arc(x, H/2, NOTE_R, 0, Math.PI * 2);
+      const g = ctx.createRadialGradient(x - 8, H/2 - 8, 4, x, H/2, NOTE_R);
+      if (n.type === 'don') {
+        g.addColorStop(0, '#ffbbbb');
+        g.addColorStop(1, '#cc2222');
+      } else {
+        g.addColorStop(0, '#bbddff');
+        g.addColorStop(1, '#2266cc');
+      }
+      ctx.fillStyle = g;
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // Judge flash overlay text near hit line
+    if (judgeFlash.at > 0) {
+      const dt = (performance.now() - judgeFlash.at) / 500;
+      if (dt < 1) {
+        ctx.fillStyle = judgeFlash.color;
+        ctx.globalAlpha = 1 - dt;
+        ctx.font = 'bold 28px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(judgeFlash.text, HIT_X, H/2 - 60 - dt * 20);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Progress bar
+    if (playing) {
+      const p = Math.min(1, currentTime() / SONG_LEN);
+      ctx.fillStyle = '#444';
+      ctx.fillRect(20, 20, W - 40, 6);
+      ctx.fillStyle = '#66ccff';
+      ctx.fillRect(20, 20, (W - 40) * p, 6);
+    }
+  }
+
+  function loop() {
+    if (playing) updateMisses(currentTime());
+    draw();
+    requestAnimationFrame(loop);
+  }
+  loop();
+
+  // Input
+  document.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    const k = e.key.toLowerCase();
+    if (k === 'f' || k === 'j') judge('don');
+    else if (k === 'd' || k === 'k') judge('ka');
+    else if (k === ' ') start();
+  });
+  btnDon.addEventListener('pointerdown', (e) => { e.preventDefault(); judge('don'); });
+  btnKa.addEventListener('pointerdown',  (e) => { e.preventDefault(); judge('ka');  });
+  btnStart.addEventListener('click', start);
+  btnRetry.addEventListener('click', () => { playing = false; reset(); start(); });
+  btnGo.addEventListener('click', () => {
+    overlay.classList.add('hidden');
+    if (audio.state === 'suspended') audio.resume();
+    start();
+  });
+})();
+</script>
+</body>
+</html>
