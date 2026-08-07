@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>アンラッキーモンスター - RPG</title>
+<style>
+  :root {
+    --bg: #0f0f1a;
+    --panel: #1c1c34;
+    --panel2: #26264a;
+    --text: #e8e8f8;
+    --accent: #ff5577;
+    --good: #66dd88;
+    --bad: #ff5555;
+    --gold: #ffcc44;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font-family: "Hiragino Sans", "Yu Gothic", "Meiryo", monospace, sans-serif;
+    min-height: 100%;
+    -webkit-user-select: none; user-select: none;
+  }
+  #app {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 12px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  header {
+    display: flex; justify-content: space-between; align-items: baseline;
+    border-bottom: 2px dashed #444;
+    padding-bottom: 6px;
+  }
+  header h1 { margin: 0; font-size: 20px; color: var(--accent); }
+  header .sub { font-size: 12px; opacity: 0.7; }
+
+  #scene {
+    background: linear-gradient(180deg, #201038 0%, #100820 100%);
+    border: 2px solid #333;
+    border-radius: 8px;
+    height: 220px;
+    position: relative;
+    overflow: hidden;
+  }
+  #floor {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 40px;
+    background: repeating-linear-gradient(
+      45deg, #221833, #221833 8px, #2a1e40 8px, #2a1e40 16px
+    );
+    border-top: 2px solid #443355;
+  }
+  .stars {
+    position: absolute; inset: 0;
+    background-image:
+      radial-gradient(1px 1px at 20% 30%, #fff 50%, transparent 60%),
+      radial-gradient(1px 1px at 60% 70%, #ddd 50%, transparent 60%),
+      radial-gradient(1px 1px at 80% 20%, #fff 50%, transparent 60%),
+      radial-gradient(1px 1px at 40% 80%, #ccc 50%, transparent 60%),
+      radial-gradient(1px 1px at 10% 60%, #fff 50%, transparent 60%),
+      radial-gradient(1px 1px at 90% 50%, #eee 50%, transparent 60%);
+    opacity: 0.6;
+  }
+  #enemy {
+    position: absolute;
+    left: 50%; top: 44%;
+    transform: translate(-50%, -50%);
+    font-size: 88px;
+    line-height: 1;
+    transition: transform 0.15s, opacity 0.25s, filter 0.15s;
+  }
+  #enemy.hit { animation: shake 0.25s; filter: hue-rotate(180deg) brightness(1.5); }
+  #enemy.dead { opacity: 0; transform: translate(-50%, -50%) scale(0.2) rotate(360deg); }
+  @keyframes shake {
+    0%,100% { transform: translate(-50%, -50%) translateX(0); }
+    25% { transform: translate(-50%, -50%) translateX(-6px); }
+    75% { transform: translate(-50%, -50%) translateX(6px); }
+  }
+  #enemyInfo {
+    position: absolute; top: 6px; left: 8px; right: 8px;
+    display: flex; justify-content: space-between;
+    font-size: 12px; color: #bbb;
+  }
+  .hpbar {
+    height: 8px; background: #333; border-radius: 4px;
+    margin-top: 4px; overflow: hidden;
+  }
+  .hpbar > div { height: 100%; background: var(--bad); transition: width 0.25s; }
+
+  #hero {
+    position: absolute;
+    left: 10%; bottom: 40px;
+    font-size: 32px;
+  }
+  #damage {
+    position: absolute; pointer-events: none;
+    color: var(--gold);
+    font-weight: bold; font-size: 24px;
+    text-shadow: 0 0 4px #000;
+  }
+  #damage.show { animation: pop 0.6s ease-out; }
+  @keyframes pop {
+    0% { opacity: 0; transform: translate(-50%, 0) scale(0.5); }
+    30% { opacity: 1; transform: translate(-50%, -20px) scale(1.3); }
+    100% { opacity: 0; transform: translate(-50%, -50px) scale(1); }
+  }
+
+  #party {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+  }
+  .member {
+    background: var(--panel); border: 2px solid #333;
+    border-radius: 6px; padding: 6px 4px;
+    text-align: center; font-size: 12px;
+  }
+  .member.down { opacity: 0.4; filter: grayscale(1); }
+  .member .face { font-size: 22px; }
+  .member .name { font-weight: bold; margin: 2px 0; }
+  .stats {
+    background: var(--panel);
+    border: 2px solid #333;
+    border-radius: 6px;
+    padding: 8px 12px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px 12px;
+    font-size: 13px;
+  }
+  .stats span.label { opacity: 0.7; margin-right: 4px; }
+  .stats span.val { color: var(--gold); font-weight: bold; }
+
+  #actions {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
+  }
+  button {
+    background: var(--panel2); color: var(--text);
+    border: 2px solid #555; border-radius: 6px;
+    padding: 10px; font-size: 15px; cursor: pointer;
+    font-family: inherit;
+    transition: transform 0.05s;
+  }
+  button:hover:not(:disabled) { background: #333366; border-color: #7788cc; }
+  button:active:not(:disabled) { transform: scale(0.97); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary { background: linear-gradient(180deg, #cc2244, #881133); border-color: #ff5577; }
+  button.magic   { background: #444422; color: #999; }
+  button.magic::after { content: " (この世界に魔法は無い)"; font-size: 11px; opacity: 0.6; }
+  button.item    { background: #223344; }
+  button.item::after   { content: " (アイテム袋は空だ)"; font-size: 11px; opacity: 0.6; }
+
+  #log {
+    background: #050510; border: 2px solid #333; border-radius: 6px;
+    padding: 8px 10px; height: 140px;
+    overflow-y: auto; font-size: 13px;
+    line-height: 1.5; scroll-behavior: smooth;
+  }
+  #log .l    { color: #ccddee; }
+  #log .good { color: var(--good); }
+  #log .bad  { color: var(--bad); }
+  #log .gold { color: var(--gold); }
+  #log .sys  { color: #8899aa; font-style: italic; }
+
+  #modal {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 10;
+  }
+  #modal.hidden { display: none; }
+  #modal .box {
+    background: var(--panel);
+    border: 3px solid var(--accent);
+    border-radius: 12px;
+    padding: 24px 28px; max-width: 92vw;
+    text-align: center;
+  }
+  #modal h2 { margin: 0 0 8px; color: var(--accent); font-size: 28px; }
+  #modal p  { margin: 6px 0; line-height: 1.6; }
+  #modal button { margin-top: 12px; padding: 12px 24px; font-size: 16px; }
+
+  footer { text-align: center; font-size: 11px; opacity: 0.5; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>アンラッキーモンスター</h1>
+    <div class="sub">RPG風・単一HTMLゲーム</div>
+  </header>
+
+  <div id="scene">
+    <div class="stars"></div>
+    <div id="enemyInfo">
+      <div>
+        <div id="enemyName">?</div>
+        <div class="hpbar"><div id="enemyHP" style="width:100%"></div></div>
+      </div>
+      <div id="floorLabel" style="text-align:right">B1F</div>
+    </div>
+    <div id="enemy">👾</div>
+    <div id="hero">🧑‍🎤</div>
+    <div id="floor"></div>
+    <div id="damage"></div>
+  </div>
+
+  <div id="party">
+    <div class="member" data-idx="0">
+      <div class="face">🧢</div>
+      <div class="name">ヒロ</div>
+      <div class="hp">HP <span>10/10</span></div>
+    </div>
+    <div class="member" data-idx="1">
+      <div class="face">🎩</div>
+      <div class="name">たっつん</div>
+      <div class="hp">HP <span>10/10</span></div>
+    </div>
+    <div class="member" data-idx="2">
+      <div class="face">🐑</div>
+      <div class="name">もふ</div>
+      <div class="hp">HP <span>10/10</span></div>
+    </div>
+    <div class="member" data-idx="3">
+      <div class="face">😴</div>
+      <div class="name">どぬく</div>
+      <div class="hp">HP <span>10/10</span></div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div><span class="label">Lv</span><span class="val" id="sLv">1</span></div>
+    <div><span class="label">EXP</span><span class="val" id="sExp">0/10</span></div>
+    <div><span class="label">Floor</span><span class="val" id="sFloor">B1</span></div>
+    <div><span class="label">残機</span><span class="val" id="sCont">3</span></div>
+  </div>
+
+  <div id="actions">
+    <button id="btnAttack" class="primary">たたかう</button>
+    <button id="btnGuard">まもる</button>
+    <button id="btnMagic"  class="magic" disabled>まほう</button>
+    <button id="btnItem"   class="item"  disabled>どうぐ</button>
+  </div>
+
+  <div id="log"></div>
+
+  <footer>
+    元ネタ: カラフルピーチ「アンラッキーモンスター」<br>
+    〜魔法も勇者も宝の地図も無いが、コンティニューは3回ある〜
+  </footer>
+</div>
+
+<div id="modal" class="hidden">
+  <div class="box">
+    <h2 id="mTitle">アンラッキーモンスター</h2>
+    <p id="mBody"></p>
+    <button id="mBtn">Start</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const logEl = $('log'), enemyEl = $('enemy'),
+        enemyNameEl = $('enemyName'), enemyHPEl = $('enemyHP'),
+        floorLabelEl = $('floorLabel'), damageEl = $('damage'),
+        modal = $('modal'), mTitle = $('mTitle'), mBody = $('mBody'), mBtn = $('mBtn');
+
+  const NAMES = ['ヒロ','たっつん','もふ','どぬく'];
+  const FACES = ['🧢','🎩','🐑','😴'];
+
+  // Monster templates. picked per floor.
+  const MONSTERS = [
+    { emoji:'👾', name:'アンラッキー・スライム',  hp: 12, atk: [1,3] },
+    { emoji:'🦇', name:'コウモリ通行止',          hp: 14, atk: [2,4] },
+    { emoji:'👻', name:'データ吹っ飛ばしゴースト', hp: 16, atk: [1,3], special:'wipe' },
+    { emoji:'🦂', name:'クリティカル・サソリ',    hp: 18, atk: [1,2], special:'crit' },
+    { emoji:'🧟', name:'彻夜ゾンビ',              hp: 22, atk: [2,4] },
+    { emoji:'👺', name:'借金天狗',                hp: 26, atk: [3,5], special:'exp' },
+    { emoji:'🐍', name:'不吉ジャンケンヘビ',      hp: 24, atk: [2,5] },
+    { emoji:'🎰', name:'負け続けスロット',        hp: 30, atk: [3,6], special:'wipe' },
+    { emoji:'🐗', name:'弁慶ボア (ボス)',         hp: 60, atk: [4,7], boss: true },
+  ];
+
+  const state = {
+    party: NAMES.map((n,i) => ({ name:n, face: FACES[i], hp: 10, maxHP: 10, down:false, guard:false })),
+    lv: 1, exp: 0, expNext: 10,
+    floor: 1,
+    continues: 3,
+    enemy: null,
+    guarding: false,
+    over: false,
+  };
+
+  function log(text, cls='l') {
+    const div = document.createElement('div');
+    div.className = cls;
+    div.textContent = text;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function updateUI() {
+    // party
+    document.querySelectorAll('.member').forEach((el, i) => {
+      const m = state.party[i];
+      el.classList.toggle('down', m.down);
+      el.querySelector('.hp span').textContent = `${Math.max(0,m.hp)}/${m.maxHP}`;
+    });
+    $('sLv').textContent = state.lv;
+    $('sExp').textContent = `${state.exp}/${state.expNext}`;
+    $('sFloor').textContent = `B${state.floor}`;
+    $('sCont').textContent = state.continues;
+    if (state.enemy) {
+      enemyEl.textContent = state.enemy.emoji;
+      enemyNameEl.textContent = state.enemy.name;
+      enemyHPEl.style.width = `${100 * Math.max(0, state.enemy.hp) / state.enemy.maxHP}%`;
+      floorLabelEl.textContent = `B${state.floor}F`;
+    }
+  }
+
+  function pickMonster(floor) {
+    let m;
+    if (floor % 5 === 0) m = MONSTERS[MONSTERS.length - 1]; // boss every 5 floors
+    else m = MONSTERS[Math.floor(Math.random() * (MONSTERS.length - 1))];
+    const scale = 1 + Math.floor(floor / 3) * 0.4;
+    return {
+      ...m,
+      hp: Math.round(m.hp * scale),
+      maxHP: Math.round(m.hp * scale),
+      atk: [Math.round(m.atk[0] * scale), Math.round(m.atk[1] * scale)],
+    };
+  }
+
+  function spawn() {
+    state.enemy = pickMonster(state.floor);
+    enemyEl.classList.remove('dead', 'hit');
+    log(`B${state.floor}F: ${state.enemy.name} が現れた！`, 'sys');
+    if (state.enemy.boss) log('▼ボスモンスター！▼', 'gold');
+    updateUI();
+  }
+
+  function showDamage(text, color) {
+    const rect = enemyEl.getBoundingClientRect();
+    const scene = enemyEl.parentElement.getBoundingClientRect();
+    damageEl.style.left = (rect.left - scene.left + rect.width / 2) + 'px';
+    damageEl.style.top  = (rect.top  - scene.top) + 'px';
+    damageEl.style.color = color || 'var(--gold)';
+    damageEl.textContent = text;
+    damageEl.classList.remove('show');
+    void damageEl.offsetWidth;
+    damageEl.classList.add('show');
+  }
+
+  function rand(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
+
+  const UNLUCKY = [
+    () => { // stubbed toe
+      const alive = state.party.filter(p => !p.down);
+      if (!alive.length) return;
+      const t = alive[Math.floor(Math.random()*alive.length)];
+      const dmg = rand(1, 2);
+      t.hp -= dmg;
+      log(`アンラッキー！ ${t.name} が石につまづいた… (-${dmg})`, 'bad');
+    },
+    () => { // trap
+      log('アンラッキー！ 落とし穴に落ちて全員 -1', 'bad');
+      state.party.forEach(p => { if (!p.down) p.hp -= 1; });
+    },
+    () => { // data wipe partial
+      if (state.exp > 0) {
+        const lost = Math.min(state.exp, rand(1, 3));
+        state.exp -= lost;
+        log(`アンラッキー！ セーブ失敗… EXP -${lost}`, 'bad');
+      } else log('アンラッキー！ 何も起きなかった…けど嫄な予感', 'sys');
+    },
+    () => { // road blocked
+      log('通行止め！ 迂回して次の敵が少し強い…', 'bad');
+      if (state.enemy) {
+        state.enemy.hp += 2;
+        state.enemy.maxHP += 2;
+      }
+    },
+  ];
+
+  function tryUnlucky() {
+    if (Math.random() < 0.28) {
+      UNLUCKY[Math.floor(Math.random() * UNLUCKY.length)]();
+    }
+  }
+
+  function attack() {
+    if (state.over || !state.enemy) return;
+    state.guarding = false;
+    // random miss (unlucky!)
+    if (Math.random() < 0.1) {
+      log('アンラッキー！ 攻撃を外した…', 'bad');
+      showDamage('MISS', '#888');
+    } else {
+      // crit chance
+      const base = rand(2, 4) + state.lv;
+      const crit = Math.random() < 0.15;
+      const dmg = crit ? base * 2 : base;
+      state.enemy.hp -= dmg;
+      enemyEl.classList.remove('hit');
+      void enemyEl.offsetWidth;
+      enemyEl.classList.add('hit');
+      showDamage(crit ? `★${dmg}` : dmg, crit ? 'var(--gold)' : '#fff');
+      log(`パーティの攻撃！ ${state.enemy.name} に ${dmg} ダメージ${crit ? ' (会心!)' : ''}`, crit ? 'gold' : 'l');
+    }
+    if (state.enemy.hp <= 0) return victory();
+    setTimeout(enemyTurn, 500);
+  }
+
+  function guard() {
+    if (state.over) return;
+    state.guarding = true;
+    log('パーティは まもりを かためた！', 'sys');
+    setTimeout(enemyTurn, 400);
+  }
+
+  function enemyTurn() {
+    if (state.over || !state.enemy || state.enemy.hp <= 0) return;
+    const e = state.enemy;
+    // Enemy specials
+    if (e.special === 'wipe' && Math.random() < 0.25) {
+      const lost = Math.min(state.exp, rand(2, 5));
+      state.exp -= lost;
+      log(`${e.name} の特殊！ セーブデータが吹っ飛んだ… EXP -${lost}`, 'bad');
+    } else if (e.special === 'exp' && Math.random() < 0.3 && state.lv > 1) {
+      state.lv -= 1;
+      state.expNext = 10 + (state.lv - 1) * 6;
+      log(`${e.name} の特殊！ レベルを奪われた… Lv ${state.lv}`, 'bad');
+    } else {
+      // Choose a random alive target
+      const alive = state.party.map((p,i)=>({p,i})).filter(x => !x.p.down);
+      if (!alive.length) return gameOver();
+      const target = alive[Math.floor(Math.random()*alive.length)];
+      let dmg = rand(e.atk[0], e.atk[1]);
+      const crit = e.special === 'crit' && Math.random() < 0.25;
+      if (crit) dmg *= 2;
+      if (state.guarding) dmg = Math.max(1, Math.floor(dmg / 2));
+      target.p.hp -= dmg;
+      log(`${e.name} の攻撃！ ${target.p.name} に ${dmg} ダメージ${crit ? ' (会心!)' : ''}${state.guarding ? ' (半減)' : ''}`, 'bad');
+      if (target.p.hp <= 0) {
+        target.p.hp = 0;
+        target.p.down = true;
+        log(`${target.p.name} は 気絶した！`, 'bad');
+      }
+    }
+    state.guarding = false;
+    updateUI();
+    if (state.party.every(p => p.down)) return gameOver();
+    // Unlucky event may fire between turns
+    setTimeout(() => { tryUnlucky(); updateUI(); if (state.party.every(p => p.down)) gameOver(); }, 300);
+  }
+
+  function victory() {
+    enemyEl.classList.add('dead');
+    const gainedExp = state.enemy.boss ? 20 + state.floor * 4 : 5 + state.floor;
+    log(`${state.enemy.name} を倒した！ EXP +${gainedExp}`, 'good');
+    state.exp += gainedExp;
+    while (state.exp >= state.expNext) {
+      state.exp -= state.expNext;
+      state.lv += 1;
+      state.expNext = 10 + (state.lv - 1) * 6;
+      const heal = 3;
+      state.party.forEach(p => {
+        p.maxHP += 2;
+        if (!p.down) p.hp = Math.min(p.maxHP, p.hp + heal);
+      });
+      log(`★レベルアップ！ Lv ${state.lv} 最大HP+2 全員 HP+${heal}`, 'gold');
+    }
+    state.floor += 1;
+    updateUI();
+    setTimeout(() => {
+      // small chance of recovering a downed member per floor
+      const downed = state.party.filter(p => p.down);
+      if (downed.length && Math.random() < 0.4) {
+        const r = downed[Math.floor(Math.random()*downed.length)];
+        r.down = false;
+        r.hp = Math.floor(r.maxHP / 2);
+        log(`ラッキー！ ${r.name} が意識を取り戻した (HP ${r.hp})`, 'good');
+      }
+      updateUI();
+      spawn();
+    }, 900);
+  }
+
+  function gameOver() {
+    if (state.over) return;
+    state.over = true;
+    log('GAMEOVER … 全員 気絶した', 'bad');
+    updateUI();
+    setTimeout(() => {
+      if (state.continues > 0) {
+        showModal(
+          'GAMEOVER',
+          `残機 ${state.continues} を消費してコンティニューできる。<br>魔法も勇者も宝の地図も無いが、まだ論めない？`,
+          'コンティニュー',
+          () => {
+            state.continues -= 1;
+            state.party.forEach(p => { p.hp = p.maxHP; p.down = false; });
+            state.over = false;
+            log('コンティニュー！ しぶとく再挑戦…', 'gold');
+            updateUI();
+            spawn();
+          }
+        );
+      } else {
+        showModal(
+          'THE END',
+          `B${state.floor}F で全滅。<br>到達フロア: <b>B${state.floor}</b> / Lv <b>${state.lv}</b><br>― アンラッキーモンスターに 完敗 ―`,
+          'もう一度はじめから',
+          reset
+        );
+      }
+    }, 700);
+  }
+
+  function showModal(title, bodyHTML, btnLabel, cb) {
+    mTitle.textContent = title;
+    mBody.innerHTML = bodyHTML;
+    mBtn.textContent = btnLabel;
+    modal.classList.remove('hidden');
+    mBtn.onclick = () => { modal.classList.add('hidden'); cb && cb(); };
+  }
+
+  function reset() {
+    state.party = NAMES.map((n,i) => ({ name:n, face: FACES[i], hp: 10, maxHP: 10, down:false, guard:false }));
+    state.lv = 1; state.exp = 0; state.expNext = 10;
+    state.floor = 1; state.continues = 3;
+    state.over = false; state.enemy = null;
+    logEl.innerHTML = '';
+    log('― 新しい冒険 ―', 'sys');
+    spawn();
+  }
+
+  // wire buttons
+  $('btnAttack').addEventListener('click', attack);
+  $('btnGuard').addEventListener('click', guard);
+  document.addEventListener('keydown', (e) => {
+    if (state.over) return;
+    if (e.key === 'a' || e.key === 'A' || e.key === 'Enter' || e.key === ' ') attack();
+    else if (e.key === 'g' || e.key === 'G') guard();
+  });
+
+  // opening
+  showModal(
+    'アンラッキーモンスター',
+    'カラフルピーチの4人でダンジョンに挑む RPG。<br>会心も出るが、罠も落とし穴もセーブ失敗もある。<br>コンティニューは <b>3回</b>。何階まで潜れる？',
+    'はじめる',
+    () => { reset(); }
+  );
+})();
+</script>
+</body>
+</html>
